@@ -11,6 +11,10 @@ ever trades real money.
 - Free data only for now. Python first; rebuild hot paths in Rust only when profiling says so.
 - Everything runs on a laptop (WSL2). The recorder must also run unchanged on a free cloud VM.
 
+## Plan
+The living roadmap is `docs/roadmap.md`. Check it before choosing what to build next, and
+update it (tick items, add dates, record decisions) when a milestone lands or priorities change.
+
 ## Working rules
 - **Commit and push incrementally, as a developer would.** Small, focused commits with
   conventional-style messages (`feat(recorder): ...`, `fix: ...`, `test: ...`, `docs: ...`,
