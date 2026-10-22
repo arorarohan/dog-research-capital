@@ -25,7 +25,7 @@ Goal: years of research data without running anything live.
 - [x] Binance loader: 1m klines + funding (BTC/ETH from 2024-12; 993,600 candles each, no gaps)
 - [x] Kalshi loader: settled markets (both tiers) + resumable sampled prices, series-scoped
 - [x] Polymarket loader for crypto up/down (5m/15m) markets via slug enumeration + windowed price history
-- [ ] Polymarket loader for general closed markets (keyset pagination) for broad calibration studies
+- [x] Polymarket loader for general resolved Yes/No markets (keyset paging by volume, 12h+ price paths, day-scale sampling)
 - [ ] Kalshi: other series beyond BTC/ETH 15m (hourly/daily crypto ladders, econ, weather)
 - [x] Data catalog (`drc-backfill catalog`): ranges, row counts, resolved and sampled markets
 Exit: one command refreshes everything; coverage report shows date ranges and gaps.

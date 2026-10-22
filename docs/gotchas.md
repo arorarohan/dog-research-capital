@@ -30,6 +30,13 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   (boundary at `/historical/cutoff`). Loaders read both and tag rows with `tier`.
 - **Polymarket `prices-history` returns nothing for resolved markets with `interval=max`**;
   use explicit `startTs`/`endTs` with `fidelity=1`. Points exist only for minutes with activity.
+- **Polymarket `prices-history` for old resolved markets only returns data at coarse fidelity**
+  (12h points worked; 10-240 min returned empty, not an error) with `interval=max`; explicit
+  `startTs`/`endTs` windows are limited to short spans. The general loader walks a fidelity
+  ladder. Gamma keyset pages cap at 100 markets and continue with `after_cursor=<next_cursor>`.
+- **Selection bias in "largest resolved markets"**: the top of the list is dominated by
+  multi-outcome events (elections, tournaments) where most Yes/No legs resolve No and legs of
+  one event are strongly dependent. Cluster by `event_id` before trusting any calibration number.
 - **Polymarket and Kalshi resolve similar crypto markets with different oracles** (Chainlink
   TWAP vs CF Benchmarks BRTI average), so the same question can resolve differently.
 - **Binance spot timestamps switched from milliseconds to microseconds on 2025-01-01**; the
