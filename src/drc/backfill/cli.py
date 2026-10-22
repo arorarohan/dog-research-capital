@@ -53,6 +53,7 @@ def main() -> None:
     sub.add_parser("catalog", help="show what we hold")
     args = ap.parse_args()
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     if args.cmd == "binance":
         since = dt.date.fromisoformat(args.since)

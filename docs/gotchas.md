@@ -20,6 +20,24 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
 
+## Historical APIs
+- **Kalshi 429s at ~4 requests/sec sustained.** `backfill/http.py` spaces requests and
+  retries with backoff; keep `min_interval` >= 0.25s.
+- **Kalshi busy markets have huge trade histories** (one 15-minute BTC market: ~34k trades,
+  34 pages, ~9s). Never download tick history of busy series; sample prices at chosen moments
+  with `min_ts`/`max_ts` windows (`backfill/kalshi.py`).
+- **Kalshi splits data across tiers**: recent in live endpoints, older under `/historical/*`
+  (boundary at `/historical/cutoff`). Loaders read both and tag rows with `tier`.
+- **Polymarket `prices-history` returns nothing for resolved markets with `interval=max`**;
+  use explicit `startTs`/`endTs` with `fidelity=1`. Points exist only for minutes with activity.
+- **Polymarket and Kalshi resolve similar crypto markets with different oracles** (Chainlink
+  TWAP vs CF Benchmarks BRTI average), so the same question can resolve differently.
+- **Binance spot timestamps switched from milliseconds to microseconds on 2025-01-01**; the
+  loader detects units by magnitude. `data.binance.vision` is reachable from the US even though
+  trading endpoints are geo-blocked.
+- Polars infers all-null columns (e.g. Kalshi `token_id`) as the Null type; always cast to the
+  declared schema before merging frames.
+
 ## Tooling
 - `pkill -f <pattern>` run from the agent's own shell matches that shell (its command line
   contains the pattern) and kills it. Use `pgrep -f "bin/drc-record"` to find the PID, then

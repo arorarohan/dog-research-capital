@@ -21,11 +21,13 @@ Status key: done / now / next / later / parked. Dates are absolute.
 
 ## Phase 1: Historical data layer (now)
 Goal: years of research data without running anything live.
-- [ ] Historical schema: `markets` (with outcomes) and `hist_trades` tables
-- [ ] Binance loader: 1m klines, funding rates (crypto price series for models and carry)
-- [ ] Kalshi loader: settled markets + trades (live and `/historical` tiers), series-scoped
-- [ ] Polymarket loader: closed markets + outcomes, trades via data-api
-- [ ] Data catalog: what's downloaded, date ranges, row counts, last refresh
+- [x] Historical schemas: `markets` (with outcomes), `price_samples`, `klines_1m`, `funding`
+- [x] Binance loader: 1m klines + funding (BTC/ETH from 2024-12; 993,600 candles each, no gaps)
+- [x] Kalshi loader: settled markets (both tiers) + resumable sampled prices, series-scoped
+- [x] Polymarket loader for crypto up/down (5m/15m) markets via slug enumeration + windowed price history
+- [ ] Polymarket loader for general closed markets (keyset pagination) for broad calibration studies
+- [ ] Kalshi: other series beyond BTC/ETH 15m (hourly/daily crypto ladders, econ, weather)
+- [x] Data catalog (`drc-backfill catalog`): ranges, row counts, resolved and sampled markets
 Exit: one command refreshes everything; coverage report shows date ranges and gaps.
 
 ## Phase 2: First research results (next)
@@ -64,5 +66,5 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 
 ## Open questions
 - Verify fee schedules (Kalshi, Polymarket, Coinbase, Kraken); results near break-even depend on them.
-- How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go?
+- How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go? (Kalshi KXBTC15M historical tier confirmed to at least 2026-08-12.)
 - Do we need an API key for Kalshi's websocket (live sessions at higher fidelity)?
