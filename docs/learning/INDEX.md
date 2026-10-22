@@ -24,3 +24,7 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [immediate-or-cancel](concepts/immediate-or-cancel.md) | taught | Market orders that fill now or are cancelled; our fill model uses top-of-book size only |
 | [strategy families](concepts/strategy-families.md) | taught | Taxonomy of strategies by edge source and holding period; costs set the horizon |
 | [statistical arbitrage](concepts/statistical-arbitrage.md) | taught | Betting a price relationship reverts; cointegration; PM versions incl. digital-option fair value |
+| [calibration](concepts/calibration.md) | taught | Do 70% contracts win 70% of the time? Gap = frequency - price; judge on clustered events |
+| [Brier score and log loss](concepts/brier-score.md) | taught | Proper scores for probability forecasts; compare to the constant base-rate forecast |
+| [basis between price sources](concepts/index-basis.md) | taught | USDT vs USD index offset (~13 bp) that breaks naive cross-source models |
+| [multiple comparisons](concepts/multiple-comparisons.md) | taught | Many tests => some false positives; pre-declare, correct, confirm out of sample |
