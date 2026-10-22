@@ -8,6 +8,7 @@ most the unflushed buffer.
 
 from __future__ import annotations
 
+import calendar
 import logging
 import time
 from pathlib import Path
@@ -74,10 +75,12 @@ class RawWriter:
     def compress_closed(self) -> int:
         """Compress every plain .jsonl that is not currently open. Returns files compressed."""
         open_paths = {p for _, p, _ in self._files.values()}
+        current_hour = time.time_ns() // NS_PER_HOUR
         cctx = zstandard.ZstdCompressor(level=6)
         n = 0
         for path in self.root.rglob("*.jsonl"):
-            if path in open_paths:
+            # never touch the current hour: a restart would append to it
+            if path in open_paths or _path_hour(path) >= current_hour:
                 continue
             tmp = path.with_name(path.name + ".zst.tmp")
             with path.open("rb") as src, tmp.open("wb") as dst:
@@ -86,6 +89,12 @@ class RawWriter:
             path.unlink()
             n += 1
         return n
+
+
+def _path_hour(path: Path) -> int:
+    """Hours-since-epoch of a `<date>/<HH>.jsonl` file."""
+    day = calendar.timegm(time.strptime(path.parent.name, "%Y-%m-%d"))
+    return day // 3600 + int(path.stem)
 
 
 def _is_json_scalar(body: bytes) -> bool:

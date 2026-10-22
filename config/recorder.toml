@@ -1,0 +1,38 @@
+# What the recorder captures. Edit freely; no code changes needed.
+
+[recorder]
+data_dir = "data/raw"
+flush_secs = 5
+maintenance_secs = 600     # compress closed hours + apply retention
+max_total_gb = 50          # safety valve: prune oldest ruled channels beyond this
+
+[coinbase]
+enabled = true
+products = ["BTC-USD", "ETH-USD", "SOL-USD"]
+
+[kraken]
+enabled = true
+symbols = ["BTC/USD", "ETH/USD", "SOL/USD"]
+book_depth = 100
+
+[polymarket]
+enabled = true
+top_n = 50                 # top markets by 24h volume
+refresh_secs = 3600
+
+[kalshi]
+enabled = true
+top_n = 50
+poll_secs = 15
+catalog_secs = 3600
+
+# Raw L2 is the bulky stuff. Trades, catalogs, and prediction-market books are small: keep forever.
+[[retention]]
+venue = "coinbase"
+channel = "l2_data"
+max_age_days = 7
+
+[[retention]]
+venue = "kraken"
+channel = "book"
+max_age_days = 7
