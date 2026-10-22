@@ -32,6 +32,18 @@ class RawWriter:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self._files: dict[tuple[str, str], tuple[int, Path, IO[bytes]]] = {}
+        self._last_ts = 0
+
+    def now_ns(self) -> int:
+        """Receive timestamp, strictly increasing across everything this writer records.
+
+        The wall clock can step backwards (WSL2 does, by over a second, every minute or so).
+        Downstream code sorts by this value to recover arrival order, so it must never go back.
+        Absolute accuracy is only as good as the machine clock; use exchange timestamps for
+        cross-venue alignment and latency.
+        """
+        self._last_ts = max(time.time_ns(), self._last_ts + 1)
+        return self._last_ts
 
     def _handle(self, venue: str, channel: str, ts_ns: int) -> IO[bytes]:
         key = (venue, channel)
@@ -49,7 +61,7 @@ class RawWriter:
 
     def write(self, venue: str, channel: str, raw: str | bytes, ts_ns: int | None = None) -> None:
         """Store one exchange message verbatim. Non-JSON payloads are stored as strings."""
-        ts_ns = time.time_ns() if ts_ns is None else ts_ns
+        ts_ns = self.now_ns() if ts_ns is None else ts_ns
         body = raw.encode() if isinstance(raw, str) else raw
         if body[:1] not in (b"{", b"[", b'"') and not _is_json_scalar(body):
             body = orjson.dumps(body.decode(errors="replace"))
@@ -59,7 +71,7 @@ class RawWriter:
 
     def event(self, venue: str, name: str, ts_ns: int | None = None, **fields: object) -> None:
         """Record a recorder-side event (connect, disconnect, ...) so gaps are explicit."""
-        ts_ns = time.time_ns() if ts_ns is None else ts_ns
+        ts_ns = self.now_ns() if ts_ns is None else ts_ns
         line = orjson.dumps({"t": ts_ns, "ev": name, **fields})
         self._handle(venue, META_CHANNEL, ts_ns).write(line + b"\n")
 

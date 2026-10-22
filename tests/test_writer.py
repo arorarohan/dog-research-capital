@@ -65,3 +65,12 @@ def test_reader_skips_corrupt_lines(tmp_path):
     path.parent.mkdir(parents=True)
     path.write_bytes(b'{"t":1,"m":{"a":1}}\n{"t":2,"m":{"a":\n{"t":3,"m":{"a":3}}\n')
     assert [r["t"] for r in read_lines(path)] == [1, 3]
+
+
+def test_receive_timestamps_stay_strictly_increasing_when_clock_steps_back(tmp_path, monkeypatch):
+    clock = iter([1_000, 1_000, 5_000, 2_000, 2_001, 9_000])  # steps back, then repeats
+    monkeypatch.setattr("drc.recorder.writer.time.time_ns", lambda: next(clock))
+    w = RawWriter(tmp_path)
+    stamps = [w.now_ns() for _ in range(6)]
+    assert stamps == sorted(set(stamps)) and len(stamps) == 6
+    assert stamps[:4] == [1_000, 1_001, 5_000, 5_001]
