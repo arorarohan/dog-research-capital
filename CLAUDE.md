@@ -14,7 +14,7 @@ ever trades real money.
 - **Commit and push incrementally, as a developer would.** Small, focused commits with
   conventional-style messages (`feat(recorder): ...`, `fix: ...`, `test: ...`, `docs: ...`,
   `chore: ...`). Push to `origin main` after each logical unit of work, not in one big dump at
-  the end. Run tests and ruff before committing.
+  the end. Run tests and ruff before committing, chained with `&&` so a failure blocks the commit.
 - Never commit market data, secrets, or `.env` files (`data/` is gitignored).
 - Be skeptical of our own results: paper PnL flatters. Fill models must be conservative, and
   backtests must account for multiple testing. Never silently interpolate across recording gaps.
@@ -28,20 +28,10 @@ when first encountered. Before explaining a term, check `docs/learning/INDEX.md`
 `docs/learning/concepts/` and its row in the index in the same commit. Keep `profile.md`
 current. See `docs/learning/README.md`.
 
-## Gotchas (learned the hard way)
-- **The WSL2 wall clock is unreliable**: it runs fast (~6% against Coinbase's server clock)
-  and steps backwards by over a second roughly every minute. `RawWriter.now_ns()` therefore
-  guarantees strictly increasing `ts_recv` so arrival order is preserved, but absolute
-  `ts_recv` can be off by ~1s and must not be used for latency or cross-venue alignment. Use
-  exchange timestamps (`ts_exch`) for that. Sorting by anything other than arrival order once
-  produced 56-78% crossed books.
-- **Trade `side` in normalized tables is the aggressor side.** Coinbase labels the maker side
-  and is flipped in the parser. Re-verify with `python -m drc.validate.trade_side` if a
-  parser changes.
-- **Depth-limited books (Kraken, depth 100) must be trimmed client-side**; the exchange never
-  sends removals for levels that fall out of range.
-- Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
-  above 0% means reconstruction is broken.
+## Gotchas
+Non-obvious traps (clocks, trade-side semantics, depth-limited books) are in
+`docs/gotchas.md`. Read it before touching the recorder, parsers, replay, or timestamps, and
+add to it whenever we learn something the hard way.
 
 ## Layout
 - `src/drc/recorder/` standalone market-data recorder (no deps on the rest of the stack)
