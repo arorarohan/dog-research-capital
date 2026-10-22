@@ -45,6 +45,21 @@ def cluster_bootstrap_mean(
     return float(values.mean()), float(lo), float(hi)
 
 
+def _boundary_gap_ci(
+    freq: float, k: int, avg_price: float, ci: float = 0.95
+) -> tuple[float, float]:
+    """Exact CI for the gap when every outcome in a bin is identical (all wins or all losses).
+
+    Resampling identical outcomes has no variance, so the bootstrap collapses to a falsely tight
+    interval. With k independent clusters and zero failures, the 95% lower bound on the win rate is
+    (1-ci)/2 ** (1/k) (Clopper-Pearson); symmetrically for zero wins.
+    """
+    tail = ((1 - ci) / 2) ** (1.0 / max(k, 1))
+    if freq == 1.0:
+        return tail - avg_price, 1.0 - avg_price
+    return -avg_price, (1.0 - tail) - avg_price
+
+
 def calibration(
     df: pl.DataFrame,
     price: str = "price",
@@ -67,6 +82,9 @@ def calibration(
         if not m.any():
             continue
         gap, g_lo, g_hi = cluster_bootstrap_mean(y[m] - p[m], c[m], n_boot, seed)
+        boundary = bool(y[m].min() == y[m].max())
+        if boundary:  # all wins or all losses: bootstrap is invalid, use the exact bound
+            g_lo, g_hi = _boundary_gap_ci(float(y[m][0]), len(np.unique(c[m])), float(p[m].mean()))
         rows.append(
             {
                 "bin": f"{lo:.2f}-{min(hi, 1.0):.2f}",
@@ -77,6 +95,7 @@ def calibration(
                 "gap": round(gap, 4),
                 "gap_ci_lo": round(g_lo, 4),
                 "gap_ci_hi": round(g_hi, 4),
+                "boundary": boundary,
             }
         )
     return pl.DataFrame(rows)

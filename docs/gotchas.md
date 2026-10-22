@@ -45,6 +45,23 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Polars infers all-null columns (e.g. Kalshi `token_id`) as the Null type; always cast to the
   declared schema before merging frames.
 
+## Research pitfalls (each of these produced a wrong or misleading number once)
+- **Never anchor a horizon to the realized resolution time.** "N days before close" using a
+  market's actual close leaks the outcome whenever outcome and close time are linked (events
+  that happen close their markets early). Use the scheduled end date, known in advance. This
+  manufactured a fake +3-8 point "mispricing" in Polymarket general markets
+  (`docs/findings/2026-10-22-first-look.md`).
+- **Define the universe before seeing outcomes.** "Largest resolved markets by total volume" is
+  chosen with hindsight and over-represents multi-outcome events with dependent legs.
+- **Bootstrap intervals collapse when every outcome in a bin is identical** (all wins). The
+  evaluation tool uses an exact Clopper-Pearson-style bound there.
+- **Mixed price sources have a basis.** Kalshi's BRTI index is ~13 bp below Binance BTCUSDT;
+  measure strike and spot on the same source.
+- **History that ends before the data you join it to silently serves stale values.** The
+  digital dataset now drops rows whose spot candle is more than 150 s old.
+- **Many CIs => some false positives.** Pre-declare tests, report every combination, and treat
+  post-hoc pooling choices as hypotheses.
+
 ## Tooling
 - `pkill -f <pattern>` run from the agent's own shell matches that shell (its command line
   contains the pattern) and kills it. Use `pgrep -f "bin/drc-record"` to find the PID, then

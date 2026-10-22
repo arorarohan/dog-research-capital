@@ -30,15 +30,21 @@ Goal: years of research data without running anything live.
 - [x] Data catalog (`drc-backfill catalog`): ranges, row counts, resolved and sampled markets
 Exit: one command refreshes everything; coverage report shows date ranges and gaps.
 
-## Phase 2: First research results (next)
-Goal: find out whether any edge exists, honestly.
-- [ ] Calibration study: realized frequency vs price by time-to-resolution, net of fees,
-      clustered by event (Kalshi + Polymarket)
-- [ ] Digital-option fair-value study: Kalshi/Polymarket crypto contracts vs spot-implied
-      probability (needs Binance klines + volatility model)
-- [ ] Consistency scans: ladder monotonicity, complement sums (on live snapshots first)
-- [ ] Evaluation toolkit: Brier/log score, reliability curves, event clustering, multiple-
-      testing correction (deflated Sharpe style), bootstrap confidence intervals
+## Phase 2: First research results (now)
+Goal: find out whether any edge exists, honestly. First look written up in
+`docs/findings/2026-10-22-first-look.md`: no tradeable edge found; the 15-minute contracts look
+efficient; one apparent anomaly turned out to be our own lookahead.
+- [x] Evaluation toolkit: Brier/log score, calibration with cluster-bootstrap CIs, exact
+      bounds for all-win/all-loss bins
+- [x] Calibration study v1 (15-minute BTC on Kalshi and Polymarket): well calibrated
+- [x] Digital-option fair-value study v1: crude model does not beat the market net of costs
+- [x] Cross-venue comparison v1 (Kalshi vs Polymarket 15-minute)
+- [ ] Redo Polymarket general calibration anchored to *scheduled* end dates with an ex-ante
+      universe (store `end_ts` in `markets`; re-sample)
+- [ ] Digital model v2: second-level spot (Binance 1s), refresh klines past 2026-10-21, better
+      volatility; more 15-minute days to narrow intervals
+- [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
+- [ ] Multiple-testing correction across the study set (deflated Sharpe style)
 Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numbers.
 
 ## Phase 3: Prediction-market strategy engine (later)

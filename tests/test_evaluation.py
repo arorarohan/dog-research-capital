@@ -69,3 +69,18 @@ def test_score_summary_reports_base_rate_benchmark():
     s = score_summary(df, "price")
     assert s["n"] == 4 and s["clusters"] == 4 and s["base_rate"] == 0.75
     assert s["brier"] < s["brier_of_base_rate"]  # informative prices beat the constant forecast
+
+
+def test_all_wins_bin_gets_an_exact_interval_not_a_collapsed_bootstrap():
+    # 94 of 94 contracts priced ~97.5% won: the data cannot rule out a true rate near 97%.
+    rng = np.random.default_rng(0)
+    df = pl.DataFrame(
+        {
+            "price": 0.95 + rng.uniform(0, 0.05, 94),
+            "result_value": np.ones(94),
+            "event_id": np.arange(94).astype(str),
+        }
+    )
+    row = calibration(df, n_boot=300).to_dicts()[0]
+    assert row["boundary"] is True
+    assert row["gap_ci_lo"] < 0.0 < row["gap_ci_hi"]  # not (falsely) significant
