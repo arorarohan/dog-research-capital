@@ -50,6 +50,12 @@ def main() -> None:
     p.add_argument("--offsets", default="840,600,420,300,180,90,30")
     p.add_argument("--no-sample", action="store_true")
 
+    g = sub.add_parser("polymarket-general", help="resolved Yes/No markets, largest first")
+    g.add_argument("--min-volume", type=float, default=50_000, help="USD volume floor")
+    g.add_argument("--max-markets", type=int, default=2000)
+    g.add_argument("--offsets-days", default="30,14,7,3,1", help="days before close to sample")
+    g.add_argument("--no-sample", action="store_true")
+
     sub.add_parser("catalog", help="show what we hold")
     args = ap.parse_args()
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
@@ -82,4 +88,12 @@ def main() -> None:
                 save_markets(args.root, markets, "polymarket", f"{asset}-updown-{kind}")
                 if not args.no_sample:
                     polymarket.sample_series(client, args.root, markets, offsets)
+    elif args.cmd == "polymarket-general":
+        client = Client(min_interval=0.15)
+        markets = polymarket.fetch_general_markets(client, args.min_volume, args.max_markets)
+        if markets.height:
+            save_markets(args.root, markets, "polymarket", polymarket.GENERAL_SERIES)
+            if not args.no_sample:
+                offsets = [int(float(d) * 86400) for d in args.offsets_days.split(",")]
+                polymarket.sample_general(client, args.root, markets, offsets)
     print("\n".join(coverage(args.root)))
