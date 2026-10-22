@@ -30,7 +30,7 @@ fixed it.
 
 ## 3. A simple digital-option model does not beat the market
 Model: lognormal with trailing 60-minute volatility, Binance 1m spot, basis-neutral strike.
-- Kalshi's price is the better forecaster at every horizon (e.g. Brier 0.0987 vs 0.117 at
+- Kalshi's price is the better forecaster at every horizon (e.g. Brier 0.0990 vs 0.117 at
   180 s, 0.0147 vs 0.0605 at 30 s).
 - Trading the model's disagreement with the market, net of an assumed 0.5c half-spread and
   Kalshi's fee: 0 of 6 pre-declared (threshold x horizon) combinations positive with an
