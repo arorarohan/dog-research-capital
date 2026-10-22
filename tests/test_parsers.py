@@ -82,7 +82,8 @@ def test_coinbase_trades_snapshot_marked_replay():
         ]
     }
     (t,) = P.coinbase_trades(msg)
-    assert t == Trade("BTC-USD", "7", 1_000_000_000, 1.5, 2.0, "sell", True)
+    # Coinbase labels the resting side: a SELL print is a buyer lifting the ask
+    assert t == Trade("BTC-USD", "7", 1_000_000_000, 1.5, 2.0, "buy", True)
 
 
 def test_kraken_book_symbol_normalized_and_qty_zero_kept():

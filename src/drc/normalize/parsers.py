@@ -1,10 +1,11 @@
 """Venue-specific parsers: one raw message in, normalized `Trade` / `BookRow` rows out.
 
-Trade `side` semantics (what the venue reports; aggressor = the side that crossed the spread):
-- kraken: taker side (documented)
+Trade `side` in the normalized tables is always the *aggressor* (taker) side: 'buy' means a
+buyer crossed the spread and lifted the ask. Each venue's label was checked empirically against
+the prevailing mid (`python -m drc.validate.trade_side`):
+- kraken, polymarket: label is already the aggressor side
 - kalshi: taker side of the Yes contract ('yes' taker -> 'buy')
-- coinbase, polymarket: as reported, lower-cased; aggressor semantics not yet verified
-  against book data (see docs/learning/concepts/aggressor-side.md once verified)
+- coinbase: the label is the *resting (maker)* side, so it is flipped here
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ def coinbase_trades(msg: dict) -> Iterator[Trade]:
                 iso_to_ns(t["time"]),
                 _f(t["price"]),
                 _f(t["size"]),
-                t["side"].lower(),
+                "sell" if t["side"] == "BUY" else "buy",  # venue labels the maker side
                 replay,
             )
 

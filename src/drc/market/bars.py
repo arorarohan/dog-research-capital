@@ -9,6 +9,7 @@ Rules:
   intervals within an epoch. Nothing is filled across epochs (reconnects) and nothing is
   extended past the last message of an epoch.
 - Intervals before the first book state of an epoch have null book columns.
+- Symbols with trades but no book states are omitted.
 - Trades replayed from a venue's post-subscribe history are de-duplicated by trade id.
 """
 
@@ -41,7 +42,9 @@ def make_bars(tops: pl.DataFrame, trades: pl.DataFrame, bar_secs: int = 1) -> pl
         .agg(*(pl.col(c).last() for c in BOOK_COLS), pl.len().alias("n_book"))
     )
     flow = (
-        trades.with_columns(((t_expr // width) * width).alias("ts"))
+        # bars are for instruments we hold books for; trade-only symbols are skipped
+        trades.join(book.select(KEY).unique(), on=KEY, how="semi")
+        .with_columns(((t_expr // width) * width).alias("ts"))
         .with_columns(
             (pl.col("size") * (pl.col("side") == "buy")).alias("_buy"),
             (pl.col("size") * (pl.col("side") == "sell")).alias("_sell"),

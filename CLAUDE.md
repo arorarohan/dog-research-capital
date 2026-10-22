@@ -28,8 +28,26 @@ when first encountered. Before explaining a term, check `docs/learning/INDEX.md`
 `docs/learning/concepts/` and its row in the index in the same commit. Keep `profile.md`
 current. See `docs/learning/README.md`.
 
+## Gotchas (learned the hard way)
+- **The WSL2 wall clock is unreliable**: it runs fast (~6% against Coinbase's server clock)
+  and steps backwards by over a second roughly every minute. `RawWriter.now_ns()` therefore
+  guarantees strictly increasing `ts_recv` so arrival order is preserved, but absolute
+  `ts_recv` can be off by ~1s and must not be used for latency or cross-venue alignment. Use
+  exchange timestamps (`ts_exch`) for that. Sorting by anything other than arrival order once
+  produced 56-78% crossed books.
+- **Trade `side` in normalized tables is the aggressor side.** Coinbase labels the maker side
+  and is flipped in the parser. Re-verify with `python -m drc.validate.trade_side` if a
+  parser changes.
+- **Depth-limited books (Kraken, depth 100) must be trimmed client-side**; the exchange never
+  sends removals for levels that fall out of range.
+- Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
+  above 0% means reconstruction is broken.
+
 ## Layout
 - `src/drc/recorder/` standalone market-data recorder (no deps on the rest of the stack)
+- `src/drc/normalize/` raw JSONL -> Parquet (`trades`, `book_events`), per-venue parsers
+- `src/drc/market/` order book, replay to top-of-book, 1s bars
+- `src/drc/validate/` ground-truth checks on our data and reconstruction
 - `docs/learning/` Rohan's learning library (profile, concept index, notes)
 - `config/` TOML configs (what to record, retention)
 - `tests/` pytest (asyncio_mode=auto)
@@ -38,3 +56,4 @@ current. See `docs/learning/README.md`.
 ## Commands
 - `uv sync` install; `uv run pytest` tests; `uv run ruff check . && uv run ruff format .` lint
 - `uv run drc-record --config config/recorder.toml` run the recorder
+- `uv run drc-normalize` raw -> Parquet; `uv run drc-bars` Parquet -> 1s bars (`data/norm/bars_1s/`)

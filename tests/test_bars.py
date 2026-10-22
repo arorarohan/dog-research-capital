@@ -64,3 +64,10 @@ def test_intervals_before_first_book_state_have_null_book():
     bars = make_bars(tops, trades).sort("ts")
     assert bars["bid"].to_list() == [None, None, 9.0]
     assert bars["n_trades"].to_list() == [1, 0, 0]
+
+
+def test_trade_only_symbols_are_omitted():
+    tops = _tops([top(1, 0, 9.0, 10.0)])
+    other = ("v", "OTHER", 1, 0, 0, None, 5.0, 1.0, "buy", False)
+    bars = make_bars(tops, _trades([trade(1, 100, 9.5, 1.0, "buy"), other]))
+    assert bars["symbol"].unique().to_list() == ["S"]

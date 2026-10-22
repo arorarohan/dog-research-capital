@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 drc-record = "drc.recorder.cli:main"
 drc-normalize = "drc.normalize.cli:main"
+drc-bars = "drc.market.build:main"
 
 [dependency-groups]
 dev = [

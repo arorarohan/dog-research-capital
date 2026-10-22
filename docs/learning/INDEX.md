@@ -16,3 +16,5 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [funding rate, basis, carry](concepts/carry.md) | new | Perpetual-futures payments and cash-and-carry trades |
 | [adverse selection](concepts/adverse-selection.md) | new | Your fills skew toward trades that then go against you |
 | [parquet](concepts/parquet.md) | taught | Columnar, typed, compressed table files; SQL-able with DuckDB but not SQL itself |
+| [aggressor side](concepts/aggressor-side.md) | taught | Which party crossed the spread; basis of order-flow signals; venues label it inconsistently |
+| [crossed book](concepts/crossed-book.md) | taught | Bid >= ask is impossible; seeing it means our replay is broken |
