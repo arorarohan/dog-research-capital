@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from drc.backfill import binance, kalshi
+from drc.backfill import binance, kalshi, polymarket
 from drc.backfill.catalog import coverage
 from drc.backfill.http import Client
 from drc.backfill.schemas import MARKETS_SCHEMA
@@ -43,6 +43,13 @@ def main() -> None:
     )
     k.add_argument("--no-sample", action="store_true", help="only fetch markets and outcomes")
 
+    p = sub.add_parser("polymarket", help="crypto up/down markets and sampled prices")
+    p.add_argument("--assets", default="btc,eth")
+    p.add_argument("--kinds", default="15m", help="5m and/or 15m, comma-separated")
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--offsets", default="840,600,420,300,180,90,30")
+    p.add_argument("--no-sample", action="store_true")
+
     sub.add_parser("catalog", help="show what we hold")
     args = ap.parse_args()
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
@@ -61,4 +68,17 @@ def main() -> None:
             save_markets(args.root, markets, "kalshi", series)
             if not args.no_sample and markets.height:
                 kalshi.sample_series(client, args.root, markets, offsets)
+    elif args.cmd == "polymarket":
+        client = Client(min_interval=0.15)
+        offsets = [int(x) for x in args.offsets.split(",")]
+        end = int(time.time()) - 1800  # leave time for the latest markets to resolve
+        start = end - args.days * 86400
+        for asset in args.assets.split(","):
+            for kind in args.kinds.split(","):
+                markets = polymarket.fetch_updown_markets(client, asset, kind, start, end)
+                if not markets.height:
+                    continue
+                save_markets(args.root, markets, "polymarket", f"{asset}-updown-{kind}")
+                if not args.no_sample:
+                    polymarket.sample_series(client, args.root, markets, offsets)
     print("\n".join(coverage(args.root)))
