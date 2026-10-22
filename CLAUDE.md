@@ -7,6 +7,7 @@ ever trades real money.
 ## Scope and priorities
 - Asset classes: crypto first (infra proving ground), prediction markets (Polymarket, Kalshi)
   as the main alpha hunt. Equities much later.
+- Latency-sensitive / HFT strategies are out of scope (laptop, home internet).
 - Free data only for now. Python first; rebuild hot paths in Rust only when profiling says so.
 - Everything runs on a laptop (WSL2). The recorder must also run unchanged on a free cloud VM.
 
