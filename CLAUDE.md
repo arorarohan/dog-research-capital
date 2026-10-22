@@ -21,8 +21,16 @@ ever trades real money.
 - Raw capture first, normalize later: the recorder stores exchange messages verbatim with a
   local receive timestamp so parsers can be fixed and re-run on old data.
 
+## Teaching Rohan
+Rohan knows probability theory and full-stack dev but is new to markets. Explain market jargon
+when first encountered. Before explaining a term, check `docs/learning/INDEX.md`; if it is
+`taught`, just use it. When you teach something new, add or update its note under
+`docs/learning/concepts/` and its row in the index in the same commit. Keep `profile.md`
+current. See `docs/learning/README.md`.
+
 ## Layout
 - `src/drc/recorder/` standalone market-data recorder (no deps on the rest of the stack)
+- `docs/learning/` Rohan's learning library (profile, concept index, notes)
 - `config/` TOML configs (what to record, retention)
 - `tests/` pytest (asyncio_mode=auto)
 - `data/` local recordings (gitignored)
