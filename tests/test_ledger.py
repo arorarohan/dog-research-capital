@@ -1,4 +1,3 @@
-import math
 import random
 
 import pytest
@@ -68,5 +67,5 @@ def test_settle_binary_contract():
 
 def test_fee_models():
     assert BpsFee(60).fee(2, 100.0) == pytest.approx(1.2)
-    assert KalshiFee().fee(100, 0.5) == pytest.approx(math.ceil(0.07 * 100 * 0.25 * 100) / 100)
+    assert KalshiFee().fee(100, 0.5) == pytest.approx(1.75)  # 7% x 100 x 0.25, already a cent
     assert KalshiFee().fee(1, 0.99) == pytest.approx(0.01)  # rounds up to the cent
