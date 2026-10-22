@@ -18,3 +18,7 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [parquet](concepts/parquet.md) | taught | Columnar, typed, compressed table files; SQL-able with DuckDB but not SQL itself |
 | [aggressor side](concepts/aggressor-side.md) | taught | Which party crossed the spread; basis of order-flow signals; venues label it inconsistently |
 | [crossed book](concepts/crossed-book.md) | taught | Bid >= ask is impossible; seeing it means our replay is broken |
+| [basis point](concepts/basis-point.md) | taught | 0.01%; the unit costs and edges are quoted in |
+| [mark to market](concepts/mark-to-market.md) | taught | Valuing positions at current prices; liquidation value (bid for longs) is the honest version |
+| [lookahead bias](concepts/lookahead-bias.md) | taught | Using future information in a backtest; how our engine prevents it |
+| [immediate-or-cancel](concepts/immediate-or-cancel.md) | taught | Market orders that fill now or are cancelled; our fill model uses top-of-book size only |

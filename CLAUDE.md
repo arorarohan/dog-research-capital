@@ -37,6 +37,7 @@ add to it whenever we learn something the hard way.
 - `src/drc/recorder/` standalone market-data recorder (no deps on the rest of the stack)
 - `src/drc/normalize/` raw JSONL -> Parquet (`trades`, `book_events`), per-venue parsers
 - `src/drc/market/` order book, replay to top-of-book, 1s bars
+- `src/drc/backtest/` ledger, engine, fee models, baseline strategies (see `docs/backtester.md`)
 - `src/drc/validate/` ground-truth checks on our data and reconstruction
 - `docs/learning/` Rohan's learning library (profile, concept index, notes)
 - `config/` TOML configs (what to record, retention)
@@ -46,4 +47,5 @@ add to it whenever we learn something the hard way.
 ## Commands
 - `uv sync` install; `uv run pytest` tests; `uv run ruff check . && uv run ruff format .` lint
 - `uv run drc-record --config config/recorder.toml` run the recorder
+- `uv run drc-backtest --venue V --symbol S --strategy {hold,random,imbalance}` run a baseline
 - `uv run drc-normalize` raw -> Parquet; `uv run drc-bars` Parquet -> 1s bars (`data/norm/bars_1s/`)

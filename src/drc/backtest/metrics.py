@@ -51,6 +51,6 @@ def summarize(result: Result, bars: pl.DataFrame) -> dict:
 
     mids = bars.drop_nulls("mid").sort("ts")["mid"]
     if mids.len() >= 2:
-        out["market_move_pct"] = round(100 * (mids[-1] / mids[0] - 1), 4)  # first symbol-agnostic
+        out["market_move_pct"] = round(100 * (mids[-1] / mids[0] - 1), 4)  # single-symbol runs
     out["warnings"] = warnings
     return out
