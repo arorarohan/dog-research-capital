@@ -23,3 +23,4 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [lookahead bias](concepts/lookahead-bias.md) | taught | Using future information in a backtest; how our engine prevents it |
 | [immediate-or-cancel](concepts/immediate-or-cancel.md) | taught | Market orders that fill now or are cancelled; our fill model uses top-of-book size only |
 | [strategy families](concepts/strategy-families.md) | taught | Taxonomy of strategies by edge source and holding period; costs set the horizon |
+| [statistical arbitrage](concepts/statistical-arbitrage.md) | taught | Betting a price relationship reverts; cointegration; PM versions incl. digital-option fair value |
