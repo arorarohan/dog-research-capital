@@ -28,6 +28,7 @@ TOPS_SCHEMA = {
     "symbol": pl.Utf8,
     "epoch": pl.Int64,
     "ts_recv": pl.Int64,
+    "ts_exch": pl.Int64,  # exchange timestamp of the latest event for this symbol (may be null)
     "bid": pl.Float64,
     "bid_sz": pl.Float64,
     "ask": pl.Float64,
@@ -57,13 +58,14 @@ def load_book_events(norm_root: Path, venue: str, symbols: list[str] | None = No
     return lf.sort("ts_recv", "msg_id", maintain_order=True).collect()
 
 
-def _top_row(venue, symbol, epoch, ts, book: Book):
+def _top_row(venue, symbol, epoch, ts, ts_exch, book: Book):
     bb, ba = book.best_bid(), book.best_ask()
     return (
         venue,
         symbol,
         epoch,
         ts,
+        ts_exch,
         bb[0] if bb else None,
         bb[1] if bb else None,
         ba[0] if ba else None,
@@ -85,8 +87,20 @@ def replay_tops(
     synced: set[tuple[str, str]] = set()
     last_state: dict[tuple[str, str], tuple] = {}
     cur_epoch: dict[str, int] = {}
+    last_exch: dict[tuple[str, str], int | None] = {}
 
-    cols = ["venue", "symbol", "epoch", "ts_recv", "msg_id", "kind", "side", "price", "size"]
+    cols = [
+        "venue",
+        "symbol",
+        "epoch",
+        "ts_recv",
+        "msg_id",
+        "ts_exch",
+        "kind",
+        "side",
+        "price",
+        "size",
+    ]
     touched: set[tuple[str, str]] = set()
     cur_msg: tuple[int, int] | None = None
     cur_ctx: tuple | None = None
@@ -94,8 +108,8 @@ def replay_tops(
     def flush() -> None:
         for key in touched:
             venue, symbol = key
-            row = _top_row(venue, symbol, cur_ctx[0], cur_ctx[1], books[key])
-            state = row[4:]
+            row = _top_row(venue, symbol, cur_ctx[0], cur_ctx[1], last_exch.get(key), books[key])
+            state = row[5:]
             if last_state.get(key) != state:
                 last_state[key] = state
                 rows.append(row)
@@ -103,9 +117,8 @@ def replay_tops(
                 stats.crossed_states += row[-1]
         touched.clear()
 
-    for venue, symbol, epoch, ts, msg_id, kind, side, price, size in events.select(
-        cols
-    ).iter_rows():
+    for row in events.select(cols).iter_rows():
+        venue, symbol, epoch, ts, msg_id, ts_exch, kind, side, price, size = row
         msg = (ts, msg_id)
         if msg != cur_msg:
             if cur_msg is not None:
@@ -120,6 +133,8 @@ def replay_tops(
                 synced.discard(key)
                 last_state.pop(key, None)
         key = (venue, symbol)
+        if ts_exch is not None:
+            last_exch[key] = ts_exch
         stats.symbols.add(symbol)
         if kind == "reset":
             books.setdefault(key, Book()).clear()
