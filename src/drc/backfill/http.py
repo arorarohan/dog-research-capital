@@ -11,9 +11,11 @@ log = logging.getLogger(__name__)
 
 
 class Client:
-    def __init__(self, base: str = "", min_interval: float = 0.25, retries: int = 8) -> None:
+    def __init__(
+        self, base: str = "", min_interval: float = 0.25, retries: int = 8, transport=None
+    ) -> None:
         self.base, self.min_interval, self.retries = base, min_interval, retries
-        self._http = httpx.Client(timeout=30, follow_redirects=True)
+        self._http = httpx.Client(timeout=30, follow_redirects=True, transport=transport)
         self._last = 0.0
 
     def _wait(self) -> None:
