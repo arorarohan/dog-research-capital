@@ -45,6 +45,8 @@ efficient; one apparent anomaly turned out to be our own lookahead.
       volatility; more 15-minute days to narrow intervals
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
 - [ ] Multiple-testing correction across the study set (deflated Sharpe style)
+Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,
+power, kill criteria). Tier 1: deadline-market time decay, weather brackets, wallet flow.
 Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numbers.
 
 ## Phase 3: Prediction-market strategy engine (later)
