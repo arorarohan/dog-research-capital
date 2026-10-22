@@ -58,3 +58,10 @@ def test_embedded_newlines_do_not_break_lines(tmp_path):
     w.write("kraken", "book", '{"a":\n1}', ts_ns=T0)
     w.close()
     assert [r["m"] for r in read_lines(hour_path(tmp_path, "kraken", "book", T0))] == [{"a": 1}]
+
+
+def test_reader_skips_corrupt_lines(tmp_path):
+    path = hour_path(tmp_path, "kraken", "book", T0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'{"t":1,"m":{"a":1}}\n{"t":2,"m":{"a":\n{"t":3,"m":{"a":3}}\n')
+    assert [r["t"] for r in read_lines(path)] == [1, 3]

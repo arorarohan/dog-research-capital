@@ -106,14 +106,16 @@ def _is_json_scalar(body: bytes) -> bool:
 
 
 def read_lines(path: Path):
-    """Iterate decoded records from a .jsonl or .jsonl.zst file."""
+    """Iterate decoded records from a .jsonl or .jsonl.zst file, skipping undecodable lines."""
     if path.suffix == ".zst":
         dctx = zstandard.ZstdDecompressor()
         with path.open("rb") as fh, dctx.stream_reader(fh) as reader:
-            data = reader.read()
-        for line in data.splitlines():
-            yield orjson.loads(line)
+            lines = reader.read().splitlines()
     else:
         with path.open("rb") as fh:
-            for line in fh:
-                yield orjson.loads(line)
+            lines = fh.readlines()
+    for i, line in enumerate(lines):
+        try:
+            yield orjson.loads(line)
+        except orjson.JSONDecodeError:
+            log.warning("%s line %d is not valid JSON; skipped", path, i + 1)
