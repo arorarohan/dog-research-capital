@@ -62,13 +62,15 @@ def digital_dataset() -> tuple[pl.DataFrame, dict]:
     m = load_markets("kalshi", "KXBTC15M")
     kl = pl.read_parquet(list((ROOT / "klines_1m" / "symbol=BTCUSDT").glob("*.parquet")))
     d = build_dataset(m, load_samples("kalshi", "KXBTC15M"), kl).drop_nulls("result_value")
-    basis_bps = 1e4 * (pl.col("strike") / pl.col("strike_binance") - 1)
-    d = d.with_columns(basis_bps.alias("basis_bps"))
+    d = d.with_columns((1e4 * (pl.col("strike") / pl.col("strike_binance") - 1)).alias("basis_bps"))
     clean = d.filter(pl.col("basis_bps").abs() <= MAX_STRIKE_BASIS_BPS)
     info = {
-        "markets": d["market_id"].n_unique(),
-        "excluded_outliers": d["market_id"].n_unique() - clean["market_id"].n_unique(),
+        "markets_total": m.height,
+        "no_fresh_spot": m.height - d["market_id"].n_unique(),
+        "basis_outliers": d["market_id"].n_unique() - clean["market_id"].n_unique(),
+        "markets_used": clean["market_id"].n_unique(),
         "median_basis_bps": round(float(d["basis_bps"].median()), 1),
+        "spot_history_ends": _d(int(kl["ts"].max())),
     }
     return clean, info
 
@@ -76,9 +78,14 @@ def digital_dataset() -> tuple[pl.DataFrame, dict]:
 def digital_study(half_spread: float = 0.005) -> None:
     d, info = digital_dataset()
     print(
-        f"\n=== Digital-option model vs Kalshi price (KXBTC15M) | {info['markets']} markets, "
-        f"{info['excluded_outliers']} excluded (index strike >{MAX_STRIKE_BASIS_BPS:.0f}bp from "
-        f"Binance); median index-vs-Binance basis {info['median_basis_bps']} bp"
+        f"\n=== Digital-option model vs Kalshi price (KXBTC15M) | {info['markets_used']} of "
+        f"{info['markets_total']} markets used"
+    )
+    print(
+        f"    dropped: {info['no_fresh_spot']} with no fresh Binance spot (history ends "
+        f"{info['spot_history_ends']}), {info['basis_outliers']} with index strike "
+        f">{MAX_STRIKE_BASIS_BPS:.0f}bp from Binance; median index-vs-Binance basis "
+        f"{info['median_basis_bps']} bp"
     )
     forecasters = (
         ("kalshi price", "price"),

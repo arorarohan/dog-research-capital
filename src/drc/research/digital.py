@@ -53,10 +53,20 @@ def prepare_klines(klines: pl.DataFrame, vol_window: int = 60) -> pl.DataFrame:
     )
 
 
+MAX_STALENESS_NS = 150 * 10**9  # spot candle must have completed within 2.5 minutes of use
+
+
 def build_dataset(
-    markets: pl.DataFrame, samples: pl.DataFrame, klines: pl.DataFrame
+    markets: pl.DataFrame,
+    samples: pl.DataFrame,
+    klines: pl.DataFrame,
+    max_staleness_ns: int = MAX_STALENESS_NS,
 ) -> pl.DataFrame:
-    """Join market outcomes + sampled Kalshi prices with spot/vol known at each sample time."""
+    """Join market outcomes + sampled Kalshi prices with spot/vol known at each sample time.
+
+    Rows whose spot (or strike) candle is older than `max_staleness_ns` are dropped, so history
+    that ends before a market does can never feed stale prices into the model.
+    """
     k = prepare_klines(klines)
     s = samples.drop_nulls("price").filter(pl.col("secs_to_close") > 0)
     d = s.join(
@@ -75,14 +85,22 @@ def build_dataset(
         .unique()
         .sort("open_ts")
         .join_asof(
-            k.select("avail_ts", pl.col("close").alias("strike_binance")),
+            k.select(
+                pl.col("avail_ts").alias("strike_avail_ts"),
+                pl.col("avail_ts"),
+                pl.col("close").alias("strike_binance"),
+            ),
             left_on="open_ts",
             right_on="avail_ts",
             strategy="backward",
         )
-        .select("market_id", "strike_binance")
+        .select("market_id", "strike_binance", "strike_avail_ts")
     )
     d = d.join(strikes, on="market_id", how="left").drop_nulls(["spot", "sigma_sec", "strike"])
+    d = d.filter(
+        (pl.col("target_ts") - pl.col("avail_ts") <= max_staleness_ns)
+        & (pl.col("open_ts") - pl.col("strike_avail_ts") <= max_staleness_ns)
+    )
     return d.with_columns(
         pl.struct("spot", "strike", "sigma_sec", "secs_to_close")
         .map_elements(
