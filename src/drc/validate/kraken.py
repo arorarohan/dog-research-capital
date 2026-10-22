@@ -17,7 +17,8 @@ from sortedcontainers import SortedDict
 
 
 def _digits(d: Decimal) -> str:
-    return str(d).replace(".", "").lstrip("0")
+    # fixed-point: JSON may carry tiny quantities as 4.5e-07, which str() renders as '4.5E-7'
+    return format(d, "f").replace(".", "").lstrip("0")
 
 
 def book_checksum(bids: SortedDict, asks: SortedDict) -> int:

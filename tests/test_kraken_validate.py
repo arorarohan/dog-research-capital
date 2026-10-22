@@ -35,3 +35,13 @@ def test_check_messages_counts_matches_and_mismatches_and_trims_depth():
     upd["data"][0]["checksum"] = book_checksum(b, a)
     assert check_messages([snap, upd], "X") == (1, 0)
     assert good != upd["data"][0]["checksum"]
+
+
+def test_scientific_notation_quantities_are_formatted_fixed_point():
+    import json
+    import zlib
+
+    qty = json.loads("4.5e-07", parse_float=D)
+    bids = SortedDict({D("2377.44"): qty})
+    # '0.00000045' -> '000000045' -> leading zeros stripped -> '45'
+    assert book_checksum(bids, SortedDict()) == zlib.crc32(b"237744" + b"45")
