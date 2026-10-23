@@ -87,6 +87,7 @@ def scheduled_calibration_study(
     )
     n_all = df.height
     df = df.filter(pl.col("stale_s") <= MAX_STALE_S)
+    n_stale = n_all - df.height
     if end_before:
         df = df.filter(pl.col("end_ts") < _to_ns(end_before))
     if end_after:
@@ -95,7 +96,7 @@ def scheduled_calibration_study(
         f"\n=== Calibration, scheduled-end anchor: polymarket/{series} | "
         f"{df['market_id'].n_unique():,} markets, scheduled ends "
         f"{_d(df['end_ts'].min())}..{_d(df['end_ts'].max())}; dropped "
-        f"{n_all - df.height} stale samples (> {MAX_STALE_S // 3600}h since last trade)"
+        f"{n_stale} stale samples (> {MAX_STALE_S // 3600}h since last trade)"
     )
     pooled = []
     for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
@@ -121,6 +122,21 @@ def scheduled_calibration_study(
     print("Pooled gap (freq_yes - price) for contracts priced 5-60c, the band that looked")
     print("mispriced in the flawed study; one row per pre-declared horizon:")
     print(pl.DataFrame(pooled))
+    h1 = df.filter(
+        (pl.col("secs_to_close") == 3 * 86400)
+        & (pl.col("price") >= 0.80)
+        & (pl.col("price") < 0.95)
+    )
+    if h1.height:
+        gap, lo, hi = cluster_bootstrap_mean(
+            (h1["result_value"] - h1["price"]).to_numpy(), h1["event_id"].to_numpy(), 5000
+        )
+        print(
+            f"\nH1 check (3d before scheduled end, priced 80-95c): n={h1.height}, "
+            f"events={h1['event_id'].n_unique()}, avg price={h1['price'].mean():.4f}, "
+            f"freq yes={h1['result_value'].mean():.4f}, gap={gap:+.4f}, "
+            f"95% CI [{lo:+.4f}, {hi:+.4f}]"
+        )
     for h in (7, 3):
         d = df.filter(pl.col("secs_to_close") == h * 86400)
         print(f"\n-- {h}d before scheduled end: calibration by price bin")
