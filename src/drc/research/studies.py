@@ -153,6 +153,96 @@ def _to_ns(day: str) -> int:
     return int(dt.datetime.fromisoformat(day).replace(tzinfo=dt.UTC).timestamp()) * 1_000_000_000
 
 
+WEATHER_SERIES = tuple(f"KXHIGH{c}" for c in ("NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"))
+WEATHER_PRIMARY = (86400, 43200)  # later horizons: the day's high has mostly happened already
+WEATHER_GROUPS = (("under 15c", 0.0, 0.15), ("15-85c", 0.15, 0.85), ("over 85c", 0.85, 1.01))
+
+
+def weather_study(half_spread: float = 0.02) -> None:
+    """Are Kalshi daily-high-temperature bracket prices calibrated, and could the gap be traded?
+
+    No forecast data is used: this asks whether the crowd's prices alone are exploitable.
+    Pre-declared before looking: horizons 24h/12h before close are primary (by 6h and 2h before
+    close the day's high is usually known, so prices near 0/1 reflect observed weather, not
+    forecasts; reported as a check only); price groups under 15c / 15-85c / over 85c; for each
+    group both sides are priced net of Kalshi's 7% x p(1-p) fee and an assumed 2c half-spread
+    (thin markets, unmeasured). All 24 combinations are printed. Kill: no primary combination
+    has a lower confidence bound above 0 net of costs.
+    """
+    fee = KalshiFee().rate
+    frames = []
+    for series in WEATHER_SERIES:
+        m = load_markets("kalshi", series).select(
+            "market_id", "event_id", "series", "result_value", "volume", "strike_type"
+        )
+        smp = load_samples("kalshi", series).drop_nulls("price").filter(pl.col("secs_to_close") > 0)
+        frames.append(smp.join(m, on="market_id").drop_nulls("result_value"))
+    df = pl.concat(frames)
+    days = df["event_id"].n_unique()
+    print(
+        f"\n=== Kalshi daily-high weather brackets | {df['market_id'].n_unique():,} markets, "
+        f"{days:,} city-days, {len(WEATHER_SERIES)} cities, {df.height:,} price samples"
+    )
+    rows, bracket_rows = [], []
+    for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
+        d = df.filter(pl.col("secs_to_close") == h)
+        sc = score_summary(d, "price")
+        print(
+            f"\n-- {horizon_label(h) if h < 86400 else '24h'}"
+            f"{' (primary)' if h in WEATHER_PRIMARY else ' (check only)'} before close: "
+            f"n={sc['n']}, city-days={sc['clusters']}, brier={sc['brier']} "
+            f"(constant base rate: {sc['brier_of_base_rate']}), log_loss={sc['log_loss']}"
+        )
+        print(calibration(d, bins=(0.0, 0.05, 0.15, 0.35, 0.65, 0.85, 0.95, 1.0), n_boot=1000))
+        for name, lo, hi in WEATHER_GROUPS:
+            g = d.filter((pl.col("price") >= lo) & (pl.col("price") < hi))
+            if g.height < 20:
+                continue
+            p, y, c = g["price"].to_numpy(), g["result_value"].to_numpy(), g["event_id"].to_numpy()
+            cost = fee * p * (1 - p) + half_spread
+            for side, profit in (("buy Yes", y - p - cost), ("buy No", p - y - cost)):
+                mean, lo_, hi_ = cluster_bootstrap_mean(profit, c, 2000)
+                rows.append(
+                    {
+                        "secs_to_close": h,
+                        "price_group": name,
+                        "side": side,
+                        "n": g.height,
+                        "city_days": g["event_id"].n_unique(),
+                        "gross_gap": round(
+                            float((y - p).mean() * (1 if side == "buy Yes" else -1)), 4
+                        ),
+                        "net_per_contract": round(mean, 4),
+                        "ci_lo": round(lo_, 4),
+                        "ci_hi": round(hi_, 4),
+                    }
+                )
+        # complement check: the brackets of one city-day are exhaustive, so prices sum to ~1
+        full = d.group_by("event_id").agg(
+            pl.col("price").sum().alias("total"), pl.len().alias("seen")
+        )
+        n_brackets = (
+            pl.concat([load_markets("kalshi", s) for s in WEATHER_SERIES])
+            .group_by("event_id")
+            .agg(pl.len().alias("n_total"))
+        )
+        full = full.join(n_brackets, on="event_id").filter(pl.col("seen") == pl.col("n_total"))
+        if full.height:
+            bracket_rows.append(
+                {
+                    "secs_to_close": h,
+                    "complete_city_days": full.height,
+                    "median_sum": round(float(full["total"].median()), 3),
+                    "share_sum_gt_1.05": round(float((full["total"] > 1.05).mean()), 3),
+                    "share_sum_lt_0.95": round(float((full["total"] < 0.95).mean()), 3),
+                }
+            )
+    print("\nNet of costs ('net_per_contract' = profit per contract after fee and half-spread):")
+    print(pl.DataFrame(rows))
+    print("\nBracket-sum check (city-days where every bracket has a price; ideal sum = 1):")
+    print(pl.DataFrame(bracket_rows) if bracket_rows else "no complete city-days")
+
+
 def digital_dataset() -> tuple[pl.DataFrame, dict]:
     m = load_markets("kalshi", "KXBTC15M")
     kl = pl.read_parquet(list((ROOT / "klines_1m" / "symbol=BTCUSDT").glob("*.parquet")))
@@ -274,6 +364,7 @@ STUDIES = {
     "calibration_poly_general_flawed": lambda: calibration_study("polymarket", "general"),
     "calibration_poly_sched": lambda: scheduled_calibration_study(end_before=DISCOVERY_END),
     "calibration_poly_sched_holdout": lambda: scheduled_calibration_study(end_after=DISCOVERY_END),
+    "weather": weather_study,
     "digital": digital_study,
     "cross_venue": cross_venue_study,
 }

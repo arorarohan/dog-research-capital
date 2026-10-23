@@ -49,6 +49,9 @@ def main() -> None:
     k.add_argument(
         "--offsets", default="840,600,420,300,180,90,30", help="seconds before close to sample"
     )
+    k.add_argument(
+        "--lookback", type=int, default=120, help="seconds back from each moment to find a trade"
+    )
     k.add_argument("--min-volume", type=float, default=0.0, help="skip sampling thinner markets")
     k.add_argument("--no-sample", action="store_true", help="only fetch markets and outcomes")
 
@@ -86,7 +89,12 @@ def main() -> None:
             save_markets(args.root, markets, "kalshi", series)
             if not args.no_sample and markets.height:
                 kalshi.sample_series(
-                    client, args.root, markets, offsets, min_volume=args.min_volume
+                    client,
+                    args.root,
+                    markets,
+                    offsets,
+                    min_volume=args.min_volume,
+                    lookback=args.lookback,
                 )
     elif args.cmd == "polymarket":
         client = Client(min_interval=0.15)

@@ -90,17 +90,33 @@ def sample_prices(
     offsets: list[int],
     lookback: int = 120,
     limit: int = 50,
+    max_pages: int = 10,
 ) -> list[dict]:
-    """Last trade price at each `close - offset` moment (seconds), looking back `lookback`s."""
+    """Last trade price at each `close - offset` moment (seconds), looking back `lookback`s.
+
+    Thin markets need a long lookback (a weather bracket may trade a few times a day); the
+    staleness of each price is kept in `last_trade_ts`. Windows with more than `limit` trades
+    are paged so the latest trade is never missed.
+    """
     path = "/historical/trades" if market["tier"] == "historical" else "/markets/trades"
     out = []
     close_s = market["close_ts"] // 1_000_000_000
     for off in offsets:
         target = close_s - off
-        body = client.json(
-            path, ticker=market["market_id"], min_ts=target - lookback, max_ts=target, limit=limit
-        )
-        trades = body.get("trades", [])
+        trades: list[dict] = []
+        cursor = None
+        for _ in range(max_pages):
+            params = {
+                "ticker": market["market_id"], "min_ts": target - lookback, "max_ts": target,
+                "limit": limit,
+            }  # fmt: skip
+            if cursor:
+                params["cursor"] = cursor
+            body = client.json(path, **params)
+            trades += body.get("trades", [])
+            cursor = body.get("cursor")
+            if not cursor or not body.get("trades"):
+                break
         if not trades:
             continue
         latest = max(trades, key=lambda t: t["created_time"])
@@ -125,6 +141,7 @@ def sample_series(
     offsets: list[int],
     chunk: int = 25,
     min_volume: float = 0.0,
+    lookback: int = 120,
 ) -> int:
     """Sample every market not already sampled; append chunked Parquet. Returns rows written.
 
@@ -151,7 +168,7 @@ def sample_series(
     for i in range(0, len(todo), chunk):
         rows = []
         for m in todo[i : i + chunk]:
-            got = sample_prices(client, m, offsets)
+            got = sample_prices(client, m, offsets, lookback=lookback)
             # a market with no trades at all still counts as done: record a sentinel-free skip
             rows += got or [
                 {

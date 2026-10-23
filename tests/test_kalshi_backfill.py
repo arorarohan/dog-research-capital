@@ -93,3 +93,20 @@ def test_sample_series_skips_untraded_and_thin_markets(tmp_path):
     markets = pl.DataFrame([market_row(mkt(t, volume_fp=v), "live") for t, v in vols.items()])
     sample_series(client_for(handler), tmp_path, markets, [300], min_volume=1000)
     assert hits == ["T2"]
+
+
+def test_sample_prices_pages_long_windows_and_honours_lookback():
+    seen = []
+
+    def handler(req):
+        seen.append((int(req.url.params["min_ts"]), req.url.params.get("cursor")))
+        if req.url.params.get("cursor") == "p2":
+            trades = [{"created_time": "2026-10-22T19:29:00Z", "yes_price_dollars": "0.70"}]
+            return httpx.Response(200, json={"trades": trades, "cursor": ""})
+        trades = [{"created_time": "2026-10-22T19:10:00Z", "yes_price_dollars": "0.30"}]
+        return httpx.Response(200, json={"trades": trades, "cursor": "p2"})
+
+    m = market_row(mkt("T"), "live")
+    (row,) = sample_prices(client_for(handler), m, [300], lookback=7200)
+    assert row["price"] == 0.70 and row["n_window"] == 2  # latest trade is on page 2
+    assert seen[0][0] == CLOSE_S - 300 - 7200 and seen[1][1] == "p2"
