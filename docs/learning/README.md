@@ -15,3 +15,6 @@ and what not to re-explain. **Check `INDEX.md` before explaining any market term
 2. If Rohan shows they already know something (or doesn't), update `profile.md` and the status.
 3. Notes stay short: what it is, why it matters for us, one analogy, where it shows up in
    this repo. Math is welcome; Rohan reads it fluently.
+4. **`taught` has a bar.** A concept is `taught` only after it was explained in detail in the
+   final message of a turn (Rohan is not watching the screen mid-turn; passing explanations
+   get missed). Write the note, mark it `new`, explain it at the end of the turn, then flip it.
