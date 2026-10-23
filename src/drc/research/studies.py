@@ -202,24 +202,27 @@ def weather_study(half_spread: float = 0.02) -> None:
             if g.height < 20:
                 continue
             p, y, c = g["price"].to_numpy(), g["result_value"].to_numpy(), g["event_id"].to_numpy()
-            cost = fee * p * (1 - p) + half_spread
-            for side, profit in (("buy Yes", y - p - cost), ("buy No", p - y - cost)):
-                mean, lo_, hi_ = cluster_bootstrap_mean(profit, c, 2000)
-                rows.append(
-                    {
-                        "secs_to_close": h,
-                        "price_group": name,
-                        "side": side,
-                        "n": g.height,
-                        "city_days": g["event_id"].n_unique(),
-                        "gross_gap": round(
-                            float((y - p).mean() * (1 if side == "buy Yes" else -1)), 4
-                        ),
-                        "net_per_contract": round(mean, 4),
-                        "ci_lo": round(lo_, 4),
-                        "ci_hi": round(hi_, 4),
-                    }
-                )
+            for hs in (half_spread, 0.0):  # 0.0 = best case: the verdict cannot hinge on spread
+                cost = fee * p * (1 - p) + hs
+                sides = (("buy Yes", y - p - cost), ("buy No", p - y - cost))
+                for side, profit in sides:
+                    mean, lo_, hi_ = cluster_bootstrap_mean(profit, c, 2000)
+                    rows.append(
+                        {
+                            "secs_to_close": h,
+                            "price_group": name,
+                            "side": side,
+                            "half_spread": hs,
+                            "n": g.height,
+                            "city_days": g["event_id"].n_unique(),
+                            "gross_gap": round(
+                                float((y - p).mean() * (1 if side == "buy Yes" else -1)), 4
+                            ),
+                            "net_per_contract": round(mean, 4),
+                            "ci_lo": round(lo_, 4),
+                            "ci_hi": round(hi_, 4),
+                        }
+                    )
         # complement check: the brackets of one city-day are exhaustive, so prices sum to ~1
         full = d.group_by("event_id").agg(
             pl.col("price").sum().alias("total"), pl.len().alias("seen")
