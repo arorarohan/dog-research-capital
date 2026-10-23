@@ -76,6 +76,6 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Equities; options
 
 ## Open questions
-- Verify fee schedules (Kalshi, Polymarket, Coinbase, Kraken); results near break-even depend on them.
+- Verify fee schedules (Coinbase, Kraken still placeholders; Polymarket verified 2026-10-23, Kalshi formula in use); results near break-even depend on them.
 - How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go? (Kalshi KXBTC15M historical tier confirmed to at least 2026-08-12.)
 - Do we need an API key for Kalshi's websocket (live sessions at higher fidelity)?
