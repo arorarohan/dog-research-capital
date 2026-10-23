@@ -19,7 +19,9 @@ Code: `src/drc/backtest/`. Run: `uv run drc-backtest --venue kraken --symbol BTC
 - Random trader loses money in a driftless noisy market across seeds.
 
 ## Known limits (do not forget when reading results)
-1. **Fee schedules are placeholders** (Coinbase 60 bp, Kraken 40 bp taker). Verify before
+1. **Coinbase/Kraken fee schedules are placeholders** (60 bp, 40 bp taker). Kalshi and
+   Polymarket use their published p(1-p) formulas (`PolymarketFee`, default 5% "other"
+   rate; pass the market's category rate when known; maker rebates not modelled). Verify before
    trusting anything near break-even. At these levels fees are 100-1000x the quoted spread on
    BTC/ETH, so short-horizon taker strategies cannot work; edge must come from lower fee
    tiers, maker rebates, or longer horizons.

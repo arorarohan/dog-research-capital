@@ -45,7 +45,7 @@ Pooled gap (win frequency minus price) for contracts priced 5-60c, one row per p
    the volume-floor hindsight filter does not look like the source.
 
 ## What we cannot conclude
-- **Not net of costs.** These are last-trade prices. Polymarket fees are ~0 (unverified) but we
+- **Not net of costs.** These are last-trade prices. Polymarket taker fees are NOT zero (rate x p(1-p), 4-7% by category, so 1-1.75c per share at 50c; see `fees.py`) and we
   have not measured the spread on these markets (history has no quotes; only live sessions can).
   A spread of a cent or two would eat most of a 2-pt average gap.
 - **Many cells.** 6 horizons x 9 bins x 3 tiers were looked at; the pre-declared headline was the
