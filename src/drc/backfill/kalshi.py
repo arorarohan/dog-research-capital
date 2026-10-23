@@ -124,8 +124,14 @@ def sample_series(
     markets: pl.DataFrame,
     offsets: list[int],
     chunk: int = 25,
+    min_volume: float = 0.0,
 ) -> int:
-    """Sample every market not already sampled; append chunked Parquet. Returns rows written."""
+    """Sample every market not already sampled; append chunked Parquet. Returns rows written.
+
+    Markets with total volume below `min_volume` contracts are skipped (ladders have hundreds
+    of strikes that never trade; sampling them wastes calls). Volume is a hindsight filter on
+    size only, so check results across volume tiers.
+    """
     series = markets["series"][0]
     dest = out_root / "price_samples" / f"venue={VENUE}" / f"series={series}"
     dest.mkdir(parents=True, exist_ok=True)
@@ -133,7 +139,13 @@ def sample_series(
     files = list(dest.glob("*.parquet"))
     if files:
         done = set(pl.read_parquet(files)["market_id"].unique().to_list())
-    todo = [m for m in markets.iter_rows(named=True) if m["market_id"] not in done]
+    todo = [
+        m
+        for m in markets.iter_rows(named=True)
+        if m["market_id"] not in done
+        and (m["volume"] or 0) > 0
+        and (m["volume"] or 0) >= min_volume
+    ]
     log.info("kalshi %s: %d markets to sample (%d already done)", series, len(todo), len(done))
     written = 0
     for i in range(0, len(todo), chunk):

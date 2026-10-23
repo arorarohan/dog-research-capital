@@ -80,3 +80,16 @@ def test_sample_series_is_resumable(tmp_path):
     assert len(hits) == first  # nothing refetched
     got = pl.read_parquet(list((tmp_path / "price_samples").rglob("*.parquet")))
     assert sorted(got["market_id"].to_list()) == ["T0", "T1", "T2"]
+
+
+def test_sample_series_skips_untraded_and_thin_markets(tmp_path):
+    hits = []
+
+    def handler(req):
+        hits.append(req.url.params["ticker"])
+        return httpx.Response(200, json={"trades": []})
+
+    vols = {"T0": "0.00", "T1": "50.00", "T2": "5000.00"}
+    markets = pl.DataFrame([market_row(mkt(t, volume_fp=v), "live") for t, v in vols.items()])
+    sample_series(client_for(handler), tmp_path, markets, [300], min_volume=1000)
+    assert hits == ["T2"]

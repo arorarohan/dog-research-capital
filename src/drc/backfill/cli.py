@@ -49,6 +49,7 @@ def main() -> None:
     k.add_argument(
         "--offsets", default="840,600,420,300,180,90,30", help="seconds before close to sample"
     )
+    k.add_argument("--min-volume", type=float, default=0.0, help="skip sampling thinner markets")
     k.add_argument("--no-sample", action="store_true", help="only fetch markets and outcomes")
 
     p = sub.add_parser("polymarket", help="crypto up/down markets and sampled prices")
@@ -84,7 +85,9 @@ def main() -> None:
             markets = kalshi.fetch_markets(client, series, min_close)
             save_markets(args.root, markets, "kalshi", series)
             if not args.no_sample and markets.height:
-                kalshi.sample_series(client, args.root, markets, offsets)
+                kalshi.sample_series(
+                    client, args.root, markets, offsets, min_volume=args.min_volume
+                )
     elif args.cmd == "polymarket":
         client = Client(min_interval=0.15)
         offsets = [int(x) for x in args.offsets.split(",")]
