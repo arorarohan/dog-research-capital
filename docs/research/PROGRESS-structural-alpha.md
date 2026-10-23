@@ -31,12 +31,12 @@ Initial sandbox test run: 91 passed; one websocket test could not bind localhost
 network restrictions. Rerun with localhost access: **92 passed**, Ruff lint passed, all 105
 Python files already formatted, and diff whitespace checks passed.
 
-Research checkpoint committed as `23db853`. GitHub push was rejected by automatic approval
-review because transmitting the research to the remote requires explicit user authorization.
-A permission question was sent; until approved, keep everything local and do not retry the
-push. Configured destination: `https://github.com/arorarohan/dog-research-capital.git`.
-The research deliverable is complete locally. This log update records the final checkpoint
-status; no implementation or empirical strategy validation was performed.
+Research checkpoint committed as `23db853`; validation/checkpoint log committed as `3b4f8b4`.
+The user subsequently authorized publishing the research branch, which was pushed successfully
+to `https://github.com/arorarohan/dog-research-capital.git`. Local and remote heads matched at
+`3b4f8b4` after that push. The user then requested a PR with a researcher-oriented handoff.
+This update records that authorization and publication status; the earlier push restriction
+has been superseded. No implementation or empirical strategy validation was performed.
 
 Do not push or merge main. Do not run the existing calibration holdout. No live orders,
 messages to others, or data changes are part of this task.
