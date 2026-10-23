@@ -10,6 +10,7 @@ from pathlib import Path
 import polars as pl
 
 from drc.backtest.engine import Config, run_backtest
+from drc.backtest.fee_lookup import fee_model_for
 from drc.backtest.metrics import summarize
 from drc.backtest.strategies import STRATEGIES
 
@@ -21,6 +22,8 @@ def main() -> None:
     ap.add_argument("--strategy", choices=sorted(STRATEGIES), required=True)
     ap.add_argument("--bars", default="data/norm/bars_1s", type=Path)
     ap.add_argument("--out", default="data/runs", type=Path)
+    ap.add_argument("--raw", default="data/raw", type=Path, help="recordings (market fee data)")
+    ap.add_argument("--hist", default="data/hist", type=Path, help="backfilled markets table")
     ap.add_argument("--cash", type=float, default=10_000.0)
     ap.add_argument("--slippage-bps", type=float, default=1.0)
     ap.add_argument("--latency-bars", type=int, default=1)
@@ -34,11 +37,15 @@ def main() -> None:
         raise SystemExit(f"no bars for {args.venue} {args.symbol}")
     cls = STRATEGIES[args.strategy]
     strat = cls(args.symbol, seed=args.seed) if args.strategy == "random" else cls(args.symbol)
+    fee_model, fee_source = fee_model_for(args.venue, args.symbol, args.raw, args.hist)
     cfg = Config(
-        initial_cash=args.cash, slippage_bps=args.slippage_bps, latency_bars=args.latency_bars
+        initial_cash=args.cash,
+        slippage_bps=args.slippage_bps,
+        latency_bars=args.latency_bars,
+        fee_model=fee_model,
     )
     result = run_backtest(bars, strat, cfg)
-    summary = summarize(result, bars)
+    summary = summarize(result, bars) | {"fee_model": repr(fee_model), "fee_source": fee_source}
 
     run_dir = (
         args.out / f"{time.strftime('%Y%m%dT%H%M%S')}-{args.strategy}-{args.venue}-{args.symbol}"

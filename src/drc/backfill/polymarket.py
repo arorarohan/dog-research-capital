@@ -36,6 +36,18 @@ def _ns(iso: str | None) -> int | None:
     return calendar.timegm(time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S")) * 1_000_000_000
 
 
+def fee_columns(m: dict) -> dict:
+    """The fee fields of a Gamma market object, as markets-table columns."""
+    sched = m.get("feeSchedule") or {}
+    return {
+        "category": m.get("category"),
+        "fee_type": m.get("feeType"),
+        "fees_enabled": m.get("feesEnabled"),
+        "fee_rate": sched.get("rate"),
+        "fee_exponent": sched.get("exponent"),
+    }
+
+
 def slugs(asset: str, kind: str, start_ts: int, end_ts: int) -> list[tuple[str, int]]:
     """(slug, interval start) for every interval starting in [start_ts, end_ts)."""
     step = KIND_SECS[kind]
@@ -77,7 +89,7 @@ def market_row(event: dict, series: str, start_s: int, kind: str) -> dict | None
         "volume": float(m["volumeNum"]) if m.get("volumeNum") is not None else None,
         "rules": m.get("description"),
         "tier": "gamma",
-    }
+    } | fee_columns(m)
 
 
 def fetch_updown_markets(
@@ -213,7 +225,7 @@ def general_market_row(m: dict) -> dict | None:
         "volume": float(m["volumeNum"]) if m.get("volumeNum") is not None else None,
         "rules": m.get("description"),
         "tier": "gamma",
-    }
+    } | fee_columns(m)
 
 
 def fetch_general_markets(
