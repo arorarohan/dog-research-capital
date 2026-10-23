@@ -12,3 +12,4 @@ data/
 *.jsonl
 *.jsonl.zst
 .env
+.claude/worktrees/
