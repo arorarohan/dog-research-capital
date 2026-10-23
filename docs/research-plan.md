@@ -10,9 +10,10 @@ single idea works is low, and we expect most to fail.
 1. **Net, not gross.** A study is worth running only if a plausible gross edge clears the cost
    hurdle by a margin we can measure. Hurdles (held to resolution, so one-way): Kalshi fee is
    7% x p(1-p) (1.75c at 50c, 0.6c at 10c, ~0 near 0/100) plus half the spread; Polymarket fee
-   is rate x p(1-p) with rate by category (verified 2026-10-23: crypto 7%, sports/economics/
-   culture/weather/other 5%, politics/finance/tech/mentions 4%, geopolitics 0; peak 1.75c /
-   1.25c / 1.0c per share at 50c) plus half the spread. Takers only; makers pay 0.
+   is rate x p(1-p), with the rate stated per market in Gamma `feeSchedule` (verified
+   2026-10-23: 0 on `zero_fees` markets, 3-5% sports, 4% politics/finance, 5% economics/
+   general, 7% crypto; peak 1.75c at 7%, 1.25c at 5%, 0.75c at 3% per share at 50c) plus half
+   the spread. Takers only; makers pay 0.
 2. **Orphan edges.** Edges persist where they are too small or too labor-intensive for
    institutions to bother, not merely where they are obscure. We have no capacity problem, so
    thin, per-market, hand-built pipelines are our natural habitat. Contested, scalable edges

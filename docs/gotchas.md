@@ -20,6 +20,25 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
 
+## Fees
+- **Polymarket fees are per market, and the docs table is only a summary.** Gamma returns
+  `feeType` and `feeSchedule` {rate, exponent, takerOnly, rebateRate} on every market; trust
+  those over the category table. Seen 2026-10-23: `zero_fees` 0, `sports_fees_v2` 3% (docs
+  table says sports 5%), `sports_fees_v3` 5%, `sports_fees_nfl_cfb_oct26` 3%, `crypto_fees_v2`
+  7%, `finance_prices_fees` and `politics_fees` 4%, `economics_fees` 5%, `general_fees` 5%.
+  Gamma's `category` field is null on every market, so the category table is a fallback only.
+- **Gamma's fee schedule is the market's current one, not its history.** Fees were switched on
+  for many market types during 2026; old closed markets read `feesEnabled: false`. A market
+  whose fees were enabled mid-life reads as fee-bearing for its whole life, which overstates
+  cost for early fills. Be conservative, and say so, when a study spans the switch-on.
+- **Old markets-table rows have null fee columns** (written before capture). Null means
+  unknown, not zero: `fee_source` falls to the category/default rate. Re-run
+  `drc-backfill polymarket-general` (newest fetch wins) to fill them.
+- **Neither Coinbase nor Kraken exposes fees per pair in public data** (Kraken `AssetPairs`
+  `fees` arrays are empty), and Coinbase's fee pages block scripts. Their schedules are
+  hand-copied tier tables in `fees.py`; recheck them when a "fees lowered" banner shows up
+  (per secondary reports, Coinbase restructured its tiers on 2026-09-16 and Kraken on 2026-07-09).
+
 ## Historical APIs
 - **Kalshi 429s at ~4 requests/sec sustained.** `backfill/http.py` spaces requests and
   retries with backoff; keep `min_interval` >= 0.25s.

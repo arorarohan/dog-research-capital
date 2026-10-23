@@ -19,12 +19,16 @@ Code: `src/drc/backtest/`. Run: `uv run drc-backtest --venue kraken --symbol BTC
 - Random trader loses money in a driftless noisy market across seeds.
 
 ## Known limits (do not forget when reading results)
-1. **Coinbase/Kraken fee schedules are placeholders** (60 bp, 40 bp taker). Kalshi and
-   Polymarket use their published p(1-p) formulas (`PolymarketFee`, default 5% "other"
-   rate; pass the market's category rate when known; maker rebates not modelled). Verify before
-   trusting anything near break-even. At these levels fees are 100-1000x the quoted spread on
-   BTC/ETH, so short-horizon taker strategies cannot work; edge must come from lower fee
-   tiers, maker rebates, or longer horizons.
+1. **Fees are published schedules, charged as a static taker tier** (`fees.py`, checked
+   2026-10-23). Coinbase Intro 90 bp, Kraken Tier 1 80 bp (entry tiers; 30-day volume is not
+   rolled forward). Coinbase's table is from two secondary copies of its Advanced VIP page
+   because Coinbase blocks scripted access; Kraken's is from Kraken's own page. Kalshi is
+   7% x p(1-p). Polymarket is rate x p(1-p) with the rate taken from the market itself:
+   `drc-backtest` looks the token up in the recorded `_catalog` (Gamma `feeSchedule`), then the
+   backfilled markets table, then the category table, then a 5% default, and prints which it
+   used as `fee_source`. Maker rebates are not modelled. At 80-90 bp fees are 100-1000x the
+   quoted spread on BTC/ETH, so short-horizon taker strategies cannot work; edge must come
+   from lower fee tiers, maker rebates, or longer horizons.
 2. **Top-of-book size only.** Bars carry the best level's size, so a $9.5k buy-and-hold on
    Kraken BTC fills ~$480. Real orders would walk the book. Fix: carry a depth ladder in bars
    or drive fills from replayed book states.
