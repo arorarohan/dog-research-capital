@@ -28,10 +28,18 @@ checked; numerical examples and nested-basket payoff identity verified. Added th
 constraint explicitly: predictable calendar changes are not automatically expected profit.
 
 Initial sandbox test run: 91 passed; one websocket test could not bind localhost under sandbox
-network restrictions. The checkpoint command reruns the suite outside that restriction and
-chains tests, lint, format checks and diff checks before committing. A successful checkpoint
-commit means those gates passed. Next: push the research branch if available. Do not push or merge main. Do not run the existing calibration
-holdout. No live orders, messages to others, or data changes are part of this task.
+network restrictions. Rerun with localhost access: **92 passed**, Ruff lint passed, all 105
+Python files already formatted, and diff whitespace checks passed.
+
+Research checkpoint committed as `23db853`. GitHub push was rejected by automatic approval
+review because transmitting the research to the remote requires explicit user authorization.
+A permission question was sent; until approved, keep everything local and do not retry the
+push. Configured destination: `https://github.com/arorarohan/dog-research-capital.git`.
+The research deliverable is complete locally. This log update records the final checkpoint
+status; no implementation or empirical strategy validation was performed.
+
+Do not push or merge main. Do not run the existing calibration holdout. No live orders,
+messages to others, or data changes are part of this task.
 
 ## Resume without repeating research
 
