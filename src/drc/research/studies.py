@@ -256,7 +256,7 @@ def cross_venue_study() -> None:
 STUDIES = {
     "calibration_kalshi15": lambda: calibration_study("kalshi", "KXBTC15M"),
     "calibration_poly15": lambda: calibration_study("polymarket", "btc-updown-15m"),
-    # FLAWED, kept only to reproduce the incident in docs/findings/2026-10-23-early-close-lookahead.md
+    # FLAWED; kept to reproduce docs/findings/2026-10-23-early-close-lookahead.md
     "calibration_poly_general_flawed": lambda: calibration_study("polymarket", "general"),
     "calibration_poly_sched": scheduled_calibration_study,
     "digital": digital_study,
