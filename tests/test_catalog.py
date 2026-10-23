@@ -1,9 +1,10 @@
 import polars as pl
 
-from drc.backfill.catalog import coverage
+from drc.backfill.catalog import conform_markets, coverage
 from drc.backfill.cli import save_markets
 from drc.backfill.kalshi import market_row
-from drc.backfill.schemas import MARKETS_SCHEMA
+
+NEW_FEE_COLUMNS = ("category", "fee_type", "fees_enabled", "fee_rate", "fee_exponent")
 
 
 def _mk(t, result):
@@ -27,7 +28,7 @@ def test_save_markets_merges_and_catalog_reports(tmp_path):
 
 def test_catalog_reads_tables_written_before_end_ts_existed(tmp_path):
     save_markets(tmp_path, pl.DataFrame([_mk("A", "yes")]), "kalshi", "NEW")
-    old = pl.DataFrame([_mk("B", "no")]).cast(MARKETS_SCHEMA).drop("end_ts")
+    old = conform_markets(pl.DataFrame([_mk("B", "no")])).drop("end_ts", *NEW_FEE_COLUMNS)
     path = tmp_path / "markets" / "venue=kalshi" / "series=OLD.parquet"
     old.write_parquet(path)
     lines = coverage(tmp_path)

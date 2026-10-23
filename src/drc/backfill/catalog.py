@@ -14,15 +14,16 @@ def _d(ns: int | None) -> str:
     return dt.datetime.fromtimestamp(ns / 1e9, dt.UTC).strftime("%Y-%m-%d") if ns else "-"
 
 
+def conform_markets(df: pl.DataFrame) -> pl.DataFrame:
+    """Give a markets frame exactly the current schema: absent columns become null."""
+    missing = [c for c in MARKETS_SCHEMA if c not in df.columns]
+    df = df.with_columns([pl.lit(None, MARKETS_SCHEMA[c]).alias(c) for c in missing])
+    return df.select(list(MARKETS_SCHEMA)).cast(MARKETS_SCHEMA)
+
+
 def read_markets(files: list) -> pl.DataFrame:
     """Concatenate markets tables, adding columns that older files were written without."""
-    frames = []
-    for f in files:
-        df = pl.read_parquet(f)
-        missing = [c for c in MARKETS_SCHEMA if c not in df.columns]
-        df = df.with_columns([pl.lit(None, MARKETS_SCHEMA[c]).alias(c) for c in missing])
-        frames.append(df.select(list(MARKETS_SCHEMA)).cast(MARKETS_SCHEMA))
-    return pl.concat(frames)
+    return pl.concat([conform_markets(pl.read_parquet(f)) for f in files])
 
 
 def coverage(root: Path) -> list[str]:
