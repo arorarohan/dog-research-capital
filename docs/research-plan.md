@@ -63,6 +63,8 @@ Dropped: sports vs sharp sportsbook odds (competitive; historical odds are paid 
 - Kill: no out-of-sample lift over price alone. Respect rate limits; public data only.
 
 ### 3. Weather brackets on Kalshi
+- **Update 2026-10-23:** price-only check done, kill criterion met, forecast pipeline on hold
+  (`docs/findings/2026-10-23-weather-calibration.md`).
 - Idea: daily-high-temperature markets (122 daily weather series; one city shows ~400 settled
   markets in ~2 months, median volume ~2k contracts, so thin and under-covered). Build a
   calibrated probability from archived model forecasts (Open-Meteo historical-forecast API,

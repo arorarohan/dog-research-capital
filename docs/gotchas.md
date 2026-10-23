@@ -62,6 +62,10 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - **Many CIs => some false positives.** Pre-declare tests, report every combination, and treat
   post-hoc pooling choices as hypotheses.
 
+- **Thin markets need a long sampling lookback.** Kalshi weather brackets trade a few times a day;
+  a 120 s lookback found a trade for only a third of the moments and biased samples toward active
+  times. Use hours and record each price's age (`last_trade_ts`).
+
 ## Tooling
 - `pkill -f <pattern>` run from the agent's own shell matches that shell (its command line
   contains the pattern) and kills it. Use `pgrep -f "bin/drc-record"` to find the PID, then

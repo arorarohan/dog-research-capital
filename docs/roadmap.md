@@ -46,6 +46,8 @@ efficient; one apparent anomaly turned out to be our own lookahead.
       positive gap at 1-7d and favorites overpriced at 3d. Holdout test of H1 pending.
 - [ ] Digital model v2: second-level spot (Binance 1s), refresh klines past 2026-10-21, better
       volatility; more 15-minute days to narrow intervals
+- [x] Weather price-only check (2026-10-23, `docs/findings/2026-10-23-weather-calibration.md`): prices
+      calibrated, nothing survives costs; forecast pipeline on hold
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
 - [ ] Multiple-testing correction across the study set (deflated Sharpe style)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,

@@ -186,12 +186,15 @@ def weather_study(half_spread: float = 0.02) -> None:
     rows, bracket_rows = [], []
     for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
         d = df.filter(pl.col("secs_to_close") == h)
+        stale_min = ((d["target_ts"] - d["last_trade_ts"]) / 6e10).to_numpy()
         sc = score_summary(d, "price")
         print(
             f"\n-- {horizon_label(h) if h < 86400 else '24h'}"
             f"{' (primary)' if h in WEATHER_PRIMARY else ' (check only)'} before close: "
             f"n={sc['n']}, city-days={sc['clusters']}, brier={sc['brier']} "
-            f"(constant base rate: {sc['brier_of_base_rate']}), log_loss={sc['log_loss']}"
+            f"(constant base rate: {sc['brier_of_base_rate']}), log_loss={sc['log_loss']}; "
+            f"price age at that moment: median {np.median(stale_min):.0f} min, "
+            f"90th pct {np.percentile(stale_min, 90):.0f} min"
         )
         print(calibration(d, bins=(0.0, 0.05, 0.15, 0.35, 0.65, 0.85, 0.95, 1.0), n_boot=1000))
         for name, lo, hi in WEATHER_GROUPS:
