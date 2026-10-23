@@ -29,3 +29,4 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [basis between price sources](concepts/index-basis.md) | taught | USDT vs USD index offset (~13 bp) that breaks naive cross-source models |
 | [multiple comparisons](concepts/multiple-comparisons.md) | taught | Many tests => some false positives; pre-declare, correct, confirm out of sample |
 | [cluster bootstrap](concepts/cluster-bootstrap.md) | taught | Resample whole events, not rows; exact bound when every outcome in a bin is identical |
+| [settlement payoff models](concepts/settlement-payoff-models.md) | new | Explicit state-to-payment maps, rule-difference baskets, and capital occupation |
