@@ -22,3 +22,12 @@ def test_save_markets_merges_and_catalog_reports(tmp_path):
     assert df.filter(pl.col("market_id") == "A")["result_value"][0] == 1.0  # newest fetch wins
     (line,) = coverage(tmp_path)
     assert "kalshi/KXBTC15M" in line and "2 markets" in line and "(2 resolved)" in line
+
+
+def test_catalog_reads_tables_written_before_end_ts_existed(tmp_path):
+    save_markets(tmp_path, pl.DataFrame([_mk("A", "yes")]), "kalshi", "NEW")
+    old = pl.DataFrame([_mk("B", "no")]).drop("end_ts")
+    path = tmp_path / "markets" / "venue=kalshi" / "series=OLD.parquet"
+    old.write_parquet(path)
+    lines = coverage(tmp_path)
+    assert len(lines) == 2 and any("kalshi/OLD" in line for line in lines)

@@ -24,7 +24,7 @@ def coverage(root: Path) -> list[str]:
             lines.append(f"{label:11} {sym:10} {g.height:>9,} rows  {span}")
     mfiles = list((root / "markets").rglob("*.parquet"))
     if mfiles:
-        m = pl.read_parquet(mfiles)
+        m = pl.scan_parquet(mfiles, missing_columns="insert").collect()
         samples = None
         sfiles = list((root / "price_samples").rglob("*.parquet"))
         if sfiles:
