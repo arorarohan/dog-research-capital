@@ -79,3 +79,8 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Verify fee schedules (Kalshi, Polymarket, Coinbase, Kraken); results near break-even depend on them.
 - How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go? (Kalshi KXBTC15M historical tier confirmed to at least 2026-08-12.)
 - Do we need an API key for Kalshi's websocket (live sessions at higher fidelity)?
+
+## Research notes (2026-10-23)
+- Added [twelve structural-alpha proposals](research/2026-10-23-structural-alpha.md) as a
+  conceptual research deliverable. No empirical edge claimed or implementation phase completed;
+  existing studies and the scheduled-calibration holdout retain their scope.

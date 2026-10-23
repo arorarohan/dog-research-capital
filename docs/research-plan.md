@@ -82,3 +82,12 @@ Dropped: sports vs sharp sportsbook odds (competitive; historical odds are paid 
 3. Cheap scans while those run: 5 (carry) and 6 (time-of-day), with the multiple-testing
    count written down first.
 4. Decide on wallet flow (2) after seeing how much data a one-sector pilot needs.
+
+## Additional conceptual research (2026-10-23)
+
+[Twelve structural-alpha proposals](research/2026-10-23-structural-alpha.md) develops process,
+measurement, conditional-probability and wallet-behavior mechanisms beyond the baseline studies
+above. These are unvalidated hypotheses with ranked feasibility, mathematical examples,
+concrete trades, data gaps and kill criteria. Start candidates: procedural gate count,
+rule-disagreement payoff baskets, and weather measurement channels. This memo does not change
+the existing holdout hypothesis or authorize a broad implementation effort.
