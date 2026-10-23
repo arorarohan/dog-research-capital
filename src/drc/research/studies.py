@@ -58,6 +58,87 @@ def calibration_study(venue: str, series: str) -> None:
         print(calibration(d, n_boot=1000))
 
 
+MAX_STALE_S = 86400  # a sample whose last trade is older than this is not "the price then"
+
+
+def scheduled_calibration_study(series: str = "general-sched") -> None:
+    """Polymarket general markets with horizons anchored to the SCHEDULED end date.
+
+    Replaces the first-look study, whose horizons used the realized close and so leaked the
+    outcome (docs/findings/2026-10-22-first-look.md section 5). The universe is every resolved
+    Yes/No market whose scheduled end fell in a date window fixed in advance; a market enters a
+    horizon only if it was open then. Pre-declared: horizons 60/30/14/7/3/1 days, default bins,
+    primary result = pooled over price bins at each horizon, plus volume tiers as robustness.
+    """
+    m = load_markets("polymarket", series).select(
+        "market_id", "event_id", "result_value", "close_ts", "end_ts", "volume"
+    )
+    s = load_samples("polymarket", series).drop_nulls("price").filter(pl.col("secs_to_close") > 0)
+    df = (
+        s.join(m, on="market_id")
+        .drop_nulls("result_value")
+        .with_columns(((pl.col("target_ts") - pl.col("last_trade_ts")) / 1e9).alias("stale_s"))
+    )
+    n_all = df.height
+    df = df.filter(pl.col("stale_s") <= MAX_STALE_S)
+    print(
+        f"\n=== Calibration, scheduled-end anchor: polymarket/{series} | "
+        f"{df['market_id'].n_unique():,} markets, scheduled ends "
+        f"{_d(df['end_ts'].min())}..{_d(df['end_ts'].max())}; dropped "
+        f"{n_all - df.height} stale samples (> {MAX_STALE_S // 3600}h since last trade)"
+    )
+    pooled = []
+    for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
+        d = df.filter(pl.col("secs_to_close") == h)
+        sc = score_summary(d, "price")
+        mid = d.filter((pl.col("price") >= 0.05) & (pl.col("price") < 0.60))
+        gap, lo, hi = cluster_bootstrap_mean(
+            (mid["result_value"] - mid["price"]).to_numpy(), mid["event_id"].to_numpy(), 2000
+        )
+        pooled.append(
+            {
+                "horizon": horizon_label(h),
+                "n": sc["n"],
+                "events": sc["clusters"],
+                "brier": sc["brier"],
+                "brier_base_rate": sc["brier_of_base_rate"],
+                "n_5_60c": mid.height,
+                "gap_5_60c": round(gap, 4),
+                "ci_lo": round(lo, 4),
+                "ci_hi": round(hi, 4),
+            }
+        )
+    print("Pooled gap (freq_yes - price) for contracts priced 5-60c, the band that looked")
+    print("mispriced in the flawed study; one row per pre-declared horizon:")
+    print(pl.DataFrame(pooled))
+    for h in (7, 3):
+        d = df.filter(pl.col("secs_to_close") == h * 86400)
+        print(f"\n-- {h}d before scheduled end: calibration by price bin")
+        print(calibration(d, n_boot=1000))
+        tiers = [("50k-250k", 5e4, 2.5e5), ("250k-1M", 2.5e5, 1e6), (">=1M", 1e6, 1e12)]
+        rows = []
+        for name, vlo, vhi in tiers:
+            t = d.filter((pl.col("volume") >= vlo) & (pl.col("volume") < vhi))
+            t = t.filter((pl.col("price") >= 0.05) & (pl.col("price") < 0.60))
+            if t.height < 20:
+                continue
+            gap, lo, hi = cluster_bootstrap_mean(
+                (t["result_value"] - t["price"]).to_numpy(), t["event_id"].to_numpy(), 2000
+            )
+            rows.append(
+                {
+                    "volume_tier": name,
+                    "n": t.height,
+                    "events": t["event_id"].n_unique(),
+                    "gap_5_60c": round(gap, 4),
+                    "ci_lo": round(lo, 4),
+                    "ci_hi": round(hi, 4),
+                }
+            )
+        print(f"{h}d, 5-60c band by total-volume tier (robustness):")
+        print(pl.DataFrame(rows))
+
+
 def digital_dataset() -> tuple[pl.DataFrame, dict]:
     m = load_markets("kalshi", "KXBTC15M")
     kl = pl.read_parquet(list((ROOT / "klines_1m" / "symbol=BTCUSDT").glob("*.parquet")))
@@ -175,7 +256,9 @@ def cross_venue_study() -> None:
 STUDIES = {
     "calibration_kalshi15": lambda: calibration_study("kalshi", "KXBTC15M"),
     "calibration_poly15": lambda: calibration_study("polymarket", "btc-updown-15m"),
-    "calibration_poly_general": lambda: calibration_study("polymarket", "general"),
+    # FLAWED, kept only to reproduce the incident in docs/findings/2026-10-23-early-close-lookahead.md
+    "calibration_poly_general_flawed": lambda: calibration_study("polymarket", "general"),
+    "calibration_poly_sched": scheduled_calibration_study,
     "digital": digital_study,
     "cross_venue": cross_venue_study,
 }
