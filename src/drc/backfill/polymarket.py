@@ -70,6 +70,7 @@ def market_row(event: dict, series: str, start_s: int, kind: str) -> dict | None
         "outcome": "Up",
         "open_ts": start_s * 1_000_000_000,
         "close_ts": (start_s + KIND_SECS[kind]) * 1_000_000_000,
+        "end_ts": (start_s + KIND_SECS[kind]) * 1_000_000_000,
         "result_value": result,
         "strike": None,
         "strike_type": None,
@@ -93,13 +94,25 @@ def fetch_updown_markets(
 
 
 def samples_from_history(
-    history: list[dict], market: dict, offsets: list[int], lookback: int = 120
+    history: list[dict],
+    market: dict,
+    offsets: list[int],
+    lookback: int = 120,
+    anchor: str = "close_ts",
 ) -> list[dict]:
-    """Last price at or before each `close - offset` moment, within `lookback` seconds."""
+    """Last price at or before each `anchor - offset` moment, within `lookback` seconds.
+
+    With anchor="end_ts" a moment counts only if the market was still open then (opened
+    before it, closed after it): that is exactly what a trader could have seen and acted on.
+    """
+    anchor_s = market[anchor] // 1_000_000_000
+    open_s = market["open_ts"] // 1_000_000_000 if market.get("open_ts") else None
     close_s = market["close_ts"] // 1_000_000_000
     out = []
     for off in offsets:
-        target = close_s - off
+        target = anchor_s - off
+        if anchor != "close_ts" and (target >= close_s or (open_s and target < open_s)):
+            continue
         window = [h for h in history if target - lookback <= h["t"] <= target]
         if not window:
             continue
@@ -156,7 +169,8 @@ def sample_series(
 
 # ---- General resolved markets (broad calibration studies) ----------------------------------
 
-GENERAL_SERIES = "general"
+GENERAL_SERIES = "general"  # legacy: top-by-volume universe, close-anchored (kept to reproduce)
+SCHEDULED_SERIES = "general-sched"  # ex-ante universe, horizons anchored to scheduled end
 FIDELITY_LADDER = (60, 360, 720, 1440)  # minutes; old markets only return data at coarse fidelity
 DAY = 86400
 DEFAULT_OFFSETS_DAYS = (30, 14, 7, 3, 1)
@@ -192,6 +206,7 @@ def general_market_row(m: dict) -> dict | None:
         "outcome": "Yes",
         "open_ts": _ns(m["startDate"]) if m.get("startDate") else None,
         "close_ts": _closed_ns(m),
+        "end_ts": _ns(m["endDate"]) if m.get("endDate") else None,
         "result_value": float(prices[0]),
         "strike": None,
         "strike_type": m.get("category"),
@@ -202,28 +217,37 @@ def general_market_row(m: dict) -> dict | None:
 
 
 def fetch_general_markets(
-    client: Client, min_volume: float = 50_000, max_markets: int = 2000
+    client: Client,
+    end_min: str,
+    end_max: str,
+    min_volume: float = 50_000,
+    max_markets: int = 20_000,
+    series: str = SCHEDULED_SERIES,
 ) -> pl.DataFrame:
-    """Resolved Yes/No markets, largest volume first, until volume or count runs out."""
+    """Resolved Yes/No markets whose SCHEDULED end date falls in [end_min, end_max).
+
+    The universe is chosen by a date known in advance, not by how big or how resolved a market
+    turned out (the old top-by-volume universe was picked with hindsight). Volume floor is
+    still a hindsight filter on size; study results should be checked across volume tiers.
+    """
     rows: list[dict] = []
     cursor = None
     while len(rows) < max_markets:
-        params = {"closed": "true", "limit": 100, "order": "volumeNum", "ascending": "false"}
+        params = {
+            "closed": "true", "limit": 100, "order": "endDate", "ascending": "true",
+            "end_date_min": end_min, "end_date_max": end_max, "volume_num_min": min_volume,
+        }  # fmt: skip
         if cursor:
             params["after_cursor"] = cursor
         body = client.json(f"{GAMMA}/markets/keyset", **params)
         page = body.get("markets", [])
         if not page:
             break
-        for m in page:
-            if float(m.get("volumeNum") or 0) < min_volume:
-                return _general_frame(rows[:max_markets])
-            if row := general_market_row(m):
-                rows.append(row)
+        rows += [r | {"series": series} for m in page if (r := general_market_row(m))]
         cursor = body.get("next_cursor")
         if not cursor:
             break
-        log.info("polymarket general: %d resolved markets so far", len(rows))
+        log.info("polymarket %s: %d resolved markets so far", series, len(rows))
     return _general_frame(rows[:max_markets])
 
 
@@ -243,9 +267,15 @@ def fetch_history(client: Client, token_id: str) -> tuple[list[dict], int | None
 
 
 def sample_general(
-    client: Client, out_root: Path, markets: pl.DataFrame, offsets: list[int], chunk: int = 50
+    client: Client,
+    out_root: Path,
+    markets: pl.DataFrame,
+    offsets: list[int],
+    chunk: int = 50,
+    anchor: str = "end_ts",
 ) -> int:
-    dest = out_root / "price_samples" / f"venue={VENUE}" / f"series={GENERAL_SERIES}"
+    series = markets["series"][0]
+    dest = out_root / "price_samples" / f"venue={VENUE}" / f"series={series}"
     dest.mkdir(parents=True, exist_ok=True)
     files = list(dest.glob("*.parquet"))
     done = set(pl.read_parquet(files)["market_id"].unique().to_list()) if files else set()
@@ -256,7 +286,9 @@ def sample_general(
         rows = []
         for m in todo[i : i + chunk]:
             history, fidelity = fetch_history(client, m["token_id"])
-            got = samples_from_history(history, m, offsets, lookback=2 * (fidelity or 720) * 60)
+            got = samples_from_history(
+                history, m, offsets, lookback=2 * (fidelity or 720) * 60, anchor=anchor
+            )
             rows += got or [  # sentinel so markets without history are not refetched forever
                 {
                     "venue": VENUE, "market_id": m["market_id"], "target_ts": m["close_ts"],

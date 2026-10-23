@@ -21,7 +21,15 @@ def save_markets(root: Path, df: pl.DataFrame, venue: str, series: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     df = df.cast(MARKETS_SCHEMA)  # all-null columns can arrive typed Null
     if path.exists():  # merge with what we had; newest fetch wins
-        df = pl.concat([df, pl.read_parquet(path)]).unique(["venue", "market_id"], keep="first")
+        old = pl.read_parquet(path)
+        old = old.with_columns(  # tables written before a column existed
+            [
+                pl.lit(None, MARKETS_SCHEMA[c]).alias(c)
+                for c in MARKETS_SCHEMA
+                if c not in old.columns
+            ]
+        ).select(list(MARKETS_SCHEMA))
+        df = pl.concat([df, old]).unique(["venue", "market_id"], keep="first")
     df.sort("close_ts").write_parquet(path, compression="zstd")
     return path
 
@@ -51,8 +59,10 @@ def main() -> None:
     p.add_argument("--no-sample", action="store_true")
 
     g = sub.add_parser("polymarket-general", help="resolved Yes/No markets, largest first")
+    g.add_argument("--end-min", default="2024-01-01", help="scheduled end >= (YYYY-MM-DD)")
+    g.add_argument("--end-max", default="2026-09-01", help="scheduled end < (YYYY-MM-DD)")
     g.add_argument("--min-volume", type=float, default=50_000, help="USD volume floor")
-    g.add_argument("--max-markets", type=int, default=2000)
+    g.add_argument("--max-markets", type=int, default=20_000)
     g.add_argument("--offsets-days", default="30,14,7,3,1", help="days before close to sample")
     g.add_argument("--no-sample", action="store_true")
 
@@ -90,9 +100,15 @@ def main() -> None:
                     polymarket.sample_series(client, args.root, markets, offsets)
     elif args.cmd == "polymarket-general":
         client = Client(min_interval=0.15)
-        markets = polymarket.fetch_general_markets(client, args.min_volume, args.max_markets)
+        markets = polymarket.fetch_general_markets(
+            client,
+            f"{args.end_min}T00:00:00Z",
+            f"{args.end_max}T00:00:00Z",
+            args.min_volume,
+            args.max_markets,
+        )
         if markets.height:
-            save_markets(args.root, markets, "polymarket", polymarket.GENERAL_SERIES)
+            save_markets(args.root, markets, "polymarket", polymarket.SCHEDULED_SERIES)
             if not args.no_sample:
                 offsets = [int(float(d) * 86400) for d in args.offsets_days.split(",")]
                 polymarket.sample_general(client, args.root, markets, offsets)

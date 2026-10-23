@@ -45,6 +45,7 @@ def market_row(m: dict, tier: str) -> dict:
         "outcome": "yes",
         "open_ts": _ns(m.get("open_time")),
         "close_ts": _ns(m.get("close_time")),
+        "end_ts": _ns(m.get("close_time")),
         "result_value": result,
         "strike": float(strike) if strike is not None else None,
         "strike_type": m.get("strike_type"),

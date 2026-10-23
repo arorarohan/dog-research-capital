@@ -23,7 +23,8 @@ MARKETS_SCHEMA = {
     "title": pl.Utf8,
     "outcome": pl.Utf8,  # what a unit of this contract pays on ('yes', 'Up', ...)
     "open_ts": pl.Int64,
-    "close_ts": pl.Int64,
+    "close_ts": pl.Int64,  # when trading actually stopped (may be early: leaks the outcome)
+    "end_ts": pl.Int64,  # SCHEDULED end, known in advance; anchor horizons to this, not close_ts
     "result_value": pl.Float64,  # payoff per unit: 1.0, 0.0, or null if unresolved/void
     "strike": pl.Float64,  # reference price for threshold/up-down crypto markets
     "strike_type": pl.Utf8,
@@ -36,7 +37,7 @@ PRICE_SAMPLES_SCHEMA = {
     "venue": pl.Utf8,
     "market_id": pl.Utf8,
     "target_ts": pl.Int64,
-    "secs_to_close": pl.Int64,
+    "secs_to_close": pl.Int64,  # seconds before the anchor (close_ts, or end_ts for `general`)
     "price": pl.Float64,  # yes-price of the last trade at or before target_ts (in the window)
     "last_trade_ts": pl.Int64,
     "n_window": pl.Int64,  # trades seen in the lookback window (liquidity proxy)

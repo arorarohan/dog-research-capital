@@ -118,18 +118,45 @@ def test_general_row_filters_and_maps():
     assert general_market_row(gm("c", slug="btc-updown-15m-1")) is None
 
 
-def test_fetch_general_stops_at_volume_floor_and_follows_cursor():
+def test_fetch_general_queries_scheduled_window_and_follows_cursor():
     pages = {
         None: {"markets": [gm("a", 9e6), gm("b", 8e6, prices=("0.5", "0.5"))], "next_cursor": "p2"},
-        "p2": {"markets": [gm("c", 7e6), gm("d", 10.0)], "next_cursor": "p3"},
+        "p2": {"markets": [gm("c", 7e6)], "next_cursor": None},
     }
+    seen = []
 
     def handler(req):
+        seen.append(dict(req.url.params))
         return httpx.Response(200, json=pages[req.url.params.get("after_cursor")])
 
     c = Client(min_interval=0, transport=httpx.MockTransport(handler))
-    df = fetch_general_markets(c, min_volume=1000)
-    assert sorted(df["market_id"].to_list()) == ["a", "c"]  # b void, d below floor
+    df = fetch_general_markets(c, "2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z", 1000)
+    assert sorted(df["market_id"].to_list()) == ["a", "c"]  # b void
+    assert set(df["series"]) == {"general-sched"}
+    assert df["end_ts"][0] == 1709251200 * 10**9  # scheduled endDate, not closedTime
+    q = seen[0]
+    assert q["order"] == "endDate" and q["end_date_min"].startswith("2024-01-01")
+    assert q["end_date_max"].startswith("2024-06-01") and q["volume_num_min"] == "1000"
+
+
+def test_scheduled_anchor_skips_moments_the_market_was_not_open():
+    day = 86400
+    end = 1709251200  # scheduled end
+    m = {
+        "market_id": "m", "open_ts": (end - 10 * day) * 10**9,
+        "close_ts": (end - 2 * day) * 10**9, "end_ts": end * 10**9,
+    }  # fmt: skip
+    hist = [
+        {"t": end - 8 * day, "p": 0.3},
+        {"t": end - 4 * day, "p": 0.4},
+        {"t": end - 2 * day - 10, "p": 0.95},
+    ]
+    got = samples_from_history(
+        hist, m, [20 * day, 7 * day, 3 * day, 1 * day], lookback=2 * day, anchor="end_ts"
+    )
+    # 20d is before the market opened; 1d is after it closed early: neither was tradable then
+    assert sorted(g["secs_to_close"] for g in got) == [3 * day, 7 * day]
+    assert {g["secs_to_close"]: g["price"] for g in got} == {7 * day: 0.3, 3 * day: 0.4}
 
 
 def test_history_fidelity_ladder_and_general_sampling(tmp_path):
@@ -145,7 +172,7 @@ def test_history_fidelity_ladder_and_general_sampling(tmp_path):
     hist, fid = fetch_history(c, "tok")
     assert fid == 720 and len(hist) == 2
     df = pl.DataFrame([general_market_row(gm("a"))])
-    sample_general(c, tmp_path, df, [3 * 86400, 3600])
+    sample_general(c, tmp_path, df, [3 * 86400, 3600], anchor="close_ts")
     got = pl.read_parquet(list((tmp_path / "price_samples").rglob("*.parquet"))).sort(
         "secs_to_close"
     )
