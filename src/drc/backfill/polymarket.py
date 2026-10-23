@@ -266,6 +266,17 @@ def fetch_history(client: Client, token_id: str) -> tuple[list[dict], int | None
     return [], None
 
 
+def _has_horizon(m: dict, offsets: list[int], anchor: str) -> bool:
+    """Free pre-check: could any horizon fall while the market was open? (skips an API call)"""
+    if anchor == "close_ts":
+        return True
+    if m[anchor] is None:
+        return False  # no scheduled end: nothing to anchor to
+    first = (m["open_ts"] or 0) // 10**9
+    last = min(m["close_ts"], m[anchor]) // 10**9
+    return any(first <= m[anchor] // 10**9 - off < last for off in offsets)
+
+
 def sample_general(
     client: Client,
     out_root: Path,
@@ -279,7 +290,11 @@ def sample_general(
     dest.mkdir(parents=True, exist_ok=True)
     files = list(dest.glob("*.parquet"))
     done = set(pl.read_parquet(files)["market_id"].unique().to_list()) if files else set()
-    todo = [m for m in markets.iter_rows(named=True) if m["market_id"] not in done]
+    todo = [
+        m
+        for m in markets.iter_rows(named=True)
+        if m["market_id"] not in done and _has_horizon(m, offsets, anchor)
+    ]
     log.info("polymarket general: %d markets to sample (%d done)", len(todo), len(done))
     written = 0
     for i in range(0, len(todo), chunk):
