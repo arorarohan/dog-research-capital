@@ -67,5 +67,8 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   contains the pattern) and kills it. Use `pgrep -f "bin/drc-record"` to find the PID, then
   `kill -INT <pid>`.
 - Chain test, lint, and commit with `&&`, never `;`, so a failing test blocks the commit.
+  Never pipe the test run through `tail`/`head`: a pipe returns the last command's exit code, so
+  a failing pytest does not block the commit. Redirect full output to a file and read parts of it.
+  Run `ruff check` and `ruff format --check` too (CI does).
 - `ruff format` rewraps code, so scripted string-replace edits of formatted files can silently
   miss. Check that an edit applied before committing.
