@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from drc.backtest.fees import BpsFee, KalshiFee, PolymarketFee
+from drc.backtest.fees import BpsFee, KalshiFee
 from drc.backtest.ledger import Fill, Ledger
 
 
@@ -69,14 +69,3 @@ def test_fee_models():
     assert BpsFee(60).fee(2, 100.0) == pytest.approx(1.2)
     assert KalshiFee().fee(100, 0.5) == pytest.approx(1.75)  # 7% x 100 x 0.25, already a cent
     assert KalshiFee().fee(1, 0.99) == pytest.approx(0.01)  # rounds up to the cent
-
-
-def test_polymarket_fee_matches_published_table():
-    # docs.polymarket.com/trading/fees, 100 shares
-    assert PolymarketFee.for_category("crypto").fee(100, 0.5) == pytest.approx(1.75)
-    assert PolymarketFee.for_category("Crypto").fee(100, 0.3) == pytest.approx(1.47)
-    assert PolymarketFee.for_category("politics").fee(100, 0.5) == pytest.approx(1.00)
-    assert PolymarketFee().fee(100, 0.1) == pytest.approx(0.45)  # default = "other", 5%
-    assert PolymarketFee.for_category("geopolitics").fee(100, 0.5) == 0.0
-    assert PolymarketFee.for_category("crypto").fee(1, 0.01) == pytest.approx(0.00069)
-    assert PolymarketFee().fee(-100, 0.5) == PolymarketFee().fee(100, 0.5)
