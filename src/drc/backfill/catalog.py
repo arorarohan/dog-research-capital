@@ -7,9 +7,22 @@ from pathlib import Path
 
 import polars as pl
 
+from drc.backfill.schemas import MARKETS_SCHEMA
+
 
 def _d(ns: int | None) -> str:
     return dt.datetime.fromtimestamp(ns / 1e9, dt.UTC).strftime("%Y-%m-%d") if ns else "-"
+
+
+def read_markets(files: list) -> pl.DataFrame:
+    """Concatenate markets tables, adding columns that older files were written without."""
+    frames = []
+    for f in files:
+        df = pl.read_parquet(f)
+        missing = [c for c in MARKETS_SCHEMA if c not in df.columns]
+        df = df.with_columns([pl.lit(None, MARKETS_SCHEMA[c]).alias(c) for c in missing])
+        frames.append(df.select(list(MARKETS_SCHEMA)).cast(MARKETS_SCHEMA))
+    return pl.concat(frames)
 
 
 def coverage(root: Path) -> list[str]:
@@ -24,7 +37,7 @@ def coverage(root: Path) -> list[str]:
             lines.append(f"{label:11} {sym:10} {g.height:>9,} rows  {span}")
     mfiles = list((root / "markets").rglob("*.parquet"))
     if mfiles:
-        m = pl.scan_parquet(mfiles, missing_columns="insert").collect()
+        m = read_markets(mfiles)
         samples = None
         sfiles = list((root / "price_samples").rglob("*.parquet"))
         if sfiles:

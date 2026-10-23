@@ -3,6 +3,7 @@ import polars as pl
 from drc.backfill.catalog import coverage
 from drc.backfill.cli import save_markets
 from drc.backfill.kalshi import market_row
+from drc.backfill.schemas import MARKETS_SCHEMA
 
 
 def _mk(t, result):
@@ -26,8 +27,9 @@ def test_save_markets_merges_and_catalog_reports(tmp_path):
 
 def test_catalog_reads_tables_written_before_end_ts_existed(tmp_path):
     save_markets(tmp_path, pl.DataFrame([_mk("A", "yes")]), "kalshi", "NEW")
-    old = pl.DataFrame([_mk("B", "no")]).drop("end_ts")
+    old = pl.DataFrame([_mk("B", "no")]).cast(MARKETS_SCHEMA).drop("end_ts")
     path = tmp_path / "markets" / "venue=kalshi" / "series=OLD.parquet"
     old.write_parquet(path)
     lines = coverage(tmp_path)
-    assert len(lines) == 2 and any("kalshi/OLD" in line for line in lines)
+    (line,) = lines  # both files read, rows grouped by their own series field
+    assert "2 markets" in line
