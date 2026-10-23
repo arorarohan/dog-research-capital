@@ -6,6 +6,7 @@ exploratory: every number here is a hypothesis to test out of sample, not a resu
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -61,7 +62,12 @@ def calibration_study(venue: str, series: str) -> None:
 MAX_STALE_S = 86400  # a sample whose last trade is older than this is not "the price then"
 
 
-def scheduled_calibration_study(series: str = "general-sched") -> None:
+DISCOVERY_END = "2026-02-09"  # markets scheduled to end before this were looked at on 2026-10-23
+
+
+def scheduled_calibration_study(
+    series: str = "general-sched", end_before: str | None = None, end_after: str | None = None
+) -> None:
     """Polymarket general markets with horizons anchored to the SCHEDULED end date.
 
     Replaces the first-look study, whose horizons used the realized close and so leaked the
@@ -81,6 +87,10 @@ def scheduled_calibration_study(series: str = "general-sched") -> None:
     )
     n_all = df.height
     df = df.filter(pl.col("stale_s") <= MAX_STALE_S)
+    if end_before:
+        df = df.filter(pl.col("end_ts") < _to_ns(end_before))
+    if end_after:
+        df = df.filter(pl.col("end_ts") >= _to_ns(end_after))
     print(
         f"\n=== Calibration, scheduled-end anchor: polymarket/{series} | "
         f"{df['market_id'].n_unique():,} markets, scheduled ends "
@@ -137,6 +147,10 @@ def scheduled_calibration_study(series: str = "general-sched") -> None:
             )
         print(f"{h}d, 5-60c band by total-volume tier (robustness):")
         print(pl.DataFrame(rows))
+
+
+def _to_ns(day: str) -> int:
+    return int(dt.datetime.fromisoformat(day).replace(tzinfo=dt.UTC).timestamp()) * 1_000_000_000
 
 
 def digital_dataset() -> tuple[pl.DataFrame, dict]:
@@ -258,7 +272,8 @@ STUDIES = {
     "calibration_poly15": lambda: calibration_study("polymarket", "btc-updown-15m"),
     # FLAWED; kept to reproduce docs/findings/2026-10-23-early-close-lookahead.md
     "calibration_poly_general_flawed": lambda: calibration_study("polymarket", "general"),
-    "calibration_poly_sched": scheduled_calibration_study,
+    "calibration_poly_sched": lambda: scheduled_calibration_study(end_before=DISCOVERY_END),
+    "calibration_poly_sched_holdout": lambda: scheduled_calibration_study(end_after=DISCOVERY_END),
     "digital": digital_study,
     "cross_venue": cross_venue_study,
 }

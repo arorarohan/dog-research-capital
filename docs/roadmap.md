@@ -26,7 +26,9 @@ Goal: years of research data without running anything live.
 - [x] Kalshi loader: settled markets (both tiers) + resumable sampled prices, series-scoped
 - [x] Polymarket loader for crypto up/down (5m/15m) markets via slug enumeration + windowed price history
 - [x] Polymarket loader for general resolved Yes/No markets (keyset paging by volume, 12h+ price paths, day-scale sampling)
-- [ ] Kalshi: other series beyond BTC/ETH 15m (hourly/daily crypto ladders, econ, weather)
+- [x] Kalshi: other series beyond BTC/ETH 15m (2026-10-23): BTC/ETH hourly and daily ladders
+      (14 days, strikes with >= 1,000 contracts), daily-high weather brackets for 7 cities (60 days),
+      CPI, weekly gas. Still open: more econ series, other weather metrics
 - [x] Data catalog (`drc-backfill catalog`): ranges, row counts, resolved and sampled markets
 Exit: one command refreshes everything; coverage report shows date ranges and gaps.
 
@@ -39,8 +41,9 @@ efficient; one apparent anomaly turned out to be our own lookahead.
 - [x] Calibration study v1 (15-minute BTC on Kalshi and Polymarket): well calibrated
 - [x] Digital-option fair-value study v1: crude model does not beat the market net of costs
 - [x] Cross-venue comparison v1 (Kalshi vs Polymarket 15-minute)
-- [ ] Redo Polymarket general calibration anchored to *scheduled* end dates with an ex-ante
-      universe (store `end_ts` in `markets`; re-sample)
+- [x] Redo Polymarket general calibration anchored to *scheduled* end dates (2026-10-23, see
+      `docs/findings/2026-10-23-scheduled-calibration.md`): old effect mostly an artifact, small
+      positive gap at 1-7d and favorites overpriced at 3d. Holdout test of H1 pending.
 - [ ] Digital model v2: second-level spot (Binance 1s), refresh klines past 2026-10-21, better
       volatility; more 15-minute days to narrow intervals
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
