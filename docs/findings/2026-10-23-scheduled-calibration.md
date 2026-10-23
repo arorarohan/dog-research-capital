@@ -92,7 +92,7 @@ introduction); the second is untested and we should not chase it on the holdout.
 | 1d | +2.4 [+1.7, +3.1] | +3.8 [+3.1, +4.5] |
 
 Contracts priced 5-60c within 7 days of the scheduled end resolve Yes 2-4 points more often than
-their price, in both periods, in all volume tiers. The 10-40c bins carry most of it (holdout, 3d:
+their price, in both periods, and (checked at 3d and 7d) in all three volume tiers. The 10-40c bins carry most of it (holdout, 3d:
 10-20c priced 14.5%, won 19.3%, +4.7 [+3.1, +6.3]). The pooled row was pre-declared as the
 headline but no numeric holdout threshold was written, so this counts as replication, not as a
 pass of a pre-declared test.
