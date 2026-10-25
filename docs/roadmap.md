@@ -56,7 +56,10 @@ efficient; one apparent anomaly turned out to be our own lookahead.
 - [ ] Forward-test sessions (2026-10-25): recorder has a Kalshi series mode and a Polymarket
       deadline mode (ex-ante universe: scheduled end within 7 days, volume to date >= $50k);
       `config/recorder-forward.toml` runs both (smoke-tested: 718 tokens, 42 brackets). Run
-      sessions to measure real spreads and forward-test the scheduled-end gap and weather H2
+      sessions to measure real spreads and forward-test the scheduled-end gap and weather H2.
+      Session 1 done 2026-10-25 (`docs/findings/2026-10-25-forward-session-1.md`): mean half-spread
+      1.1c on the Polymarket strategy universe but only ~$45 median depth at the best ask; weather
+      longshots often have no Yes bid (H2 not executable at the tails). More sessions needed.
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
 - [ ] Multiple-testing correction across the study set (deflated Sharpe style)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,

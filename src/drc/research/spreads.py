@@ -113,9 +113,16 @@ def summarize(d: pl.DataFrame, by: str, edges: list[float] | None = None) -> pl.
 
 
 def main() -> None:
-    bars = pl.read_parquet(ROOT / "norm" / "bars_1s" / "venue=polymarket.parquet")
-    d, counts = usable_seconds(bars, load_catalog(ROOT / "raw"))
-    span_h = (bars["ts"].max() - bars["ts"].min()) / 1e9 / 3600
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="drc.research.spreads")
+    ap.add_argument("--norm", default=ROOT / "norm", type=Path, help="normalized data dir")
+    ap.add_argument("--raw", default=ROOT / "raw", type=Path, help="raw recordings (catalog)")
+    args = ap.parse_args()
+    bars = pl.read_parquet(args.norm / "bars_1s" / "venue=polymarket.parquet")
+    d, counts = usable_seconds(bars, load_catalog(args.raw))
+    # book snapshots can carry old exchange timestamps; ignore the earliest 1% for the span
+    span_h = (bars["ts"].max() - bars["ts"].quantile(0.01)) / 1e9 / 3600
     print(
         f"Polymarket recorded books: {counts['tokens']} tokens, {span_h:.2f} h, {counts['bars']:,} "
         f"bars; excluded {counts['one_sided']:,} one-sided and {counts['locked_or_crossed']:,} "
@@ -133,6 +140,9 @@ def main() -> None:
     print(summarize(inband, "tick"))
     print("\nBy fee type:")
     print(summarize(inband, "fee_type"))
+    core = inband.filter((pl.col("days_to_end") >= 1) & (pl.col("days_to_end") < 7))
+    print(f"\nStrategy universe (1-7 days to scheduled end, mid 5-60c): {core.height:,} seconds")
+    print(summarize(core, "mid_px", [0.05, 0.10, 0.20, 0.40, 0.60]))
 
 
 if __name__ == "__main__":
