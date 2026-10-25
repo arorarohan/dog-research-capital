@@ -247,3 +247,12 @@ runner (ties to Q8); (c) a free-tier cloud VM: most robust, can run the recorder
 CLAUDE.md already requires the recorder to run unchanged on one. The roadmap parks cloud
 "until justified"; unattended forward testing arguably justifies it. Recommended: (a) while we
 build, (c) before the forward test's clock officially starts.
+
+## 6c. Answers to Q8-Q12 (Rohan, 2026-10-25)
+- Q8 backup: private repo `arorarohan/drc-ledger` (created, empty). Ledger lives at
+  `data/ledger/` as a nested git repo; main repo is public, so nothing sensitive goes there.
+- Q9 capital: accepted ($100k treasury, $10k per fund, $50-100 per trade).
+- Q10 charter: accepted as v0; Rohan reviews the final file before it freezes.
+- Q11 test length: Rohan asked what the decision is; restated as "accept slow edge validation,
+  judging costs early" (recommended) versus widening the universe; answer pending.
+- Q12 hosting: cloud VM as soon as possible. Scripts in `deploy/`, steps in `docs/deploy.md`.

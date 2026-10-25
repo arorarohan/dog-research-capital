@@ -1,0 +1,14 @@
+[Unit]
+Description=Dog Research Capital market-data recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__APP_DIR__
+ExecStart=/home/__USER__/.local/bin/uv run drc-record --config config/recorder.toml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
