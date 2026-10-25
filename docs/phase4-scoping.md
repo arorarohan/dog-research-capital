@@ -4,6 +4,20 @@ Status: **draft for Rohan's decisions** (2026-10-25). Nothing here is built. Roa
 Phase 4 was written before we had any research results; this doc re-derives it from where we
 actually are. Open questions are in section 6, each with an explanation.
 
+## 0. Decisions so far (Rohan, 2026-10-25)
+1. Purpose: better decisions first, learning how a shop runs second.
+2. Pull a thin forward-test slice ahead of Phase 3: **yes**.
+3. UI: a real web app, but as a **later phase**; static reports first. Rohan has a domain for it.
+4. **One fund per hypothesis**, plus a firm-level ledger of total invested, per-fund performance
+   and overall PnL to date (`docs/design/forward-test-platform.md` section 4).
+5. Paper trading is **fully automatic**; no manual approvals.
+6. Viewing away from the laptop is wanted, later.
+7. Simulation-only by construction, **but built and judged as if it could handle real money**:
+   the same strategy code and risk checks a live system would need, pessimistic fills, nothing
+   discretionary (design doc section 1).
+
+Q1-Q7 below are answered by this list. New questions are in section 6b.
+
 ## 1. Where we actually are
 
 - Phase 0-2 are mostly done: recorder, historical data layer, evaluation toolkit, four written
@@ -194,3 +208,42 @@ If Q1/Q2 go as recommended: write `docs/design/event-log.md` (event schema, how 
 `Ledger` and the backtest `Fill`), then build Slice 1 against the single surviving candidate
 (Polymarket 5-60c scheduled-end gap). Roadmap Phase 4 would be rewritten to the three slices
 above with Slice 1 moved ahead of Phase 3.
+
+## 6b. Open questions raised by the design (2026-10-25)
+
+**Q8. Where is the evidence backed up?** The event log of a forward test cannot be
+re-downloaded; if the laptop disk dies, weeks of evidence are gone. Options: (a) a private Git
+repo holding only the small ledger (our own records, no raw market data, consistent with
+CLAUDE.md's "never commit market data"; book snapshots kept out or referenced by hash);
+(b) a periodic copy to a cloud bucket or a host on your domain; (c) laptop only for now.
+Recommended: (a) or (b) from day one.
+
+**Q9. Starting capital.** Allocation is arbitrary but should be large enough that sizing and
+depth limits bite. Proposal: treasury $100k notional, $10k per fund, trades of $50-100 each
+(small against the $50k-$1M-volume markets this strategy targets). Bigger trades fill worse,
+which is the realism we want to feel. OK, or different numbers?
+
+**Q10. Strategy parameters for the first fund.** Proposal: 3-day horizon, 5-60c ask band, buy
+Yes, hold to resolution, ex-ante volume floor (stand-in for the backtest's $50k total volume,
+e.g. $10k trailing 24h volume, to be justified from the data before launch). The live version
+deliberately uses the ask, not the last trade. Do you want to review the charter before it
+freezes? I would: after the first trade it is locked.
+
+**Q11. How long and how big a forward test?** Each trade pays 0 or 1, so per-trade noise has
+standard deviation near 40c. Detecting +1.2c at 80% power and 5% significance needs about
+((1.96+0.84) x 0.40 / 0.012)^2, roughly 9,000 independent events. A fund taking a few dozen
+trades a day needs many months. So the forward test will validate our *cost model* (live
+spreads, fill rates, fees vs the backtest's assumptions) within weeks, but the *edge* only
+slowly. Options: (a) accept that, judge costs early and call the edge inconclusive until the
+sample exists; (b) also widen the universe (more horizons, more markets) to get more events
+per day, at the price of testing a different hypothesis than the one we backtested.
+Recommended: (a), and (b) only as a separate fund.
+
+**Q12. Where does the daily job run?** "Fully automatic" means it runs whether or not you are
+at the laptop. WSL2 laptops sleep, so sessions will be missed (logged as missed, never
+backfilled). Options: (a) a scheduled task on the laptop: free, simple, misses days;
+(b) GitHub Actions on a schedule: free and reliably timed, but state must live outside the
+runner (ties to Q8); (c) a free-tier cloud VM: most robust, can run the recorder too, and
+CLAUDE.md already requires the recorder to run unchanged on one. The roadmap parks cloud
+"until justified"; unattended forward testing arguably justifies it. Recommended: (a) while we
+build, (c) before the forward test's clock officially starts.

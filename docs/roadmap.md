@@ -69,14 +69,20 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Live sessions: forward paper-trading of surviving strategies with full trade logging;
   compare live paper results to backtest predictions (the gap is itself a result)
 
-## Phase 4: Platform and UI (scoping 2026-10-25)
-Draft scope, direction options and open questions: `docs/phase4-scoping.md`. Recommended
-direction: event-log-based paper funds + research registry, built in thin slices, with a
-forward-test session logger possibly pulled ahead of Phase 3. Bullets below are the old plan
-and will be rewritten once Rohan picks a direction.
-- Dashboard: fund NAVs, positions, blotter, signal monitors, research runs
-- Multiple made-up funds with separate mandates and capital; run registry
-- One-command "session" workflow: start recorder + paper trader, summarize, shut down
+## Phase 4: Forward-test platform and UI (scoped 2026-10-25)
+Direction decided with Rohan 2026-10-25 (`docs/phase4-scoping.md` section 0): decisions first,
+one automatic paper fund per hypothesis, judged as if it handled real money, simulation-only by
+construction, web app later. Design: `docs/design/forward-test-platform.md`. A thin slice runs
+**ahead of Phase 3** because decision-time snapshots cannot be recreated.
+- [ ] Slice 0: append-only hash-chained event log (SQLite), depth-aware `SimBroker`, risk checks,
+      reconciliation, treasury/firm-total projections
+- [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
+      scheduling mechanism chosen, static HTML report
+- [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
+      vs realized with the power note
+- [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
+Open before building: backup location, starting capital, charter parameters, test length,
+where the daily job runs (scoping doc Q8-Q12).
 
 ## Phase 5: Slow crypto book (later)
 - Funding-rate carry and trend on hourly/daily bars; multi-asset portfolio backtests
