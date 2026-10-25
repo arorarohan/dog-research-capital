@@ -44,7 +44,9 @@ efficient; one apparent anomaly turned out to be our own lookahead.
 - [x] Redo Polymarket general calibration anchored to *scheduled* end dates (2026-10-23, see
       `docs/findings/2026-10-23-scheduled-calibration.md`): old effect mostly an artifact, small
       positive gap at 1-7d replicated on the holdout (+2 to +4 pts, gross); favorites hypothesis H1
-      killed on the holdout. Net-of-costs test pending.
+      killed on the holdout. Net of per-market fees and a 1c half-spread the 5-60c gap still nets
+      +1.2c (3d, holdout, pre-declared primary passed 2026-10-25); spread and hindsight volume
+      filter unresolved: forward test next.
 - [ ] Digital model v2: second-level spot (Binance 1s), refresh klines past 2026-10-21, better
       volatility; more 15-minute days to narrow intervals
 - [x] Weather price-only check (2026-10-23, `docs/findings/2026-10-23-weather-calibration.md`): prices

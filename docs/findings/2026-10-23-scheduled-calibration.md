@@ -1,7 +1,9 @@
 # Polymarket general calibration, redone with scheduled-end anchoring (2026-10-23)
 
-Status: **holdout run 2026-10-23: H1 (favorites overpriced) is dead; the small positive gap on
-5-60c contracts replicated. Not yet tested net of costs.** Supersedes section 5
+Status: **H1 (favorites overpriced) is dead. The 5-60c gap replicated on the holdout and, net of
+each market's own fee and a 1c half-spread, still earns about +1.2c per contract (pre-declared
+primary test passed, 2026-10-25). Spread is unmeasured and a hindsight volume filter remains, so
+this is a candidate for forward testing, not a trading result.** Supersedes section 5
 of `docs/findings/2026-10-22-first-look.md`; why that was wrong is in
 `docs/findings/2026-10-23-early-close-lookahead.md`.
 
@@ -97,6 +99,50 @@ their price, in both periods, and (checked at 3d and 7d) in all three volume tie
 headline but no numeric holdout threshold was written, so this counts as replication, not as a
 pass of a pre-declared test.
 
-**Next step: net of costs.** The 2-4 point gap is gross, on last-trade prices. Polymarket taker
-fees are per market (rate x p(1-p); PR #2) and spreads are unmeasured, so whether any of this
-survives is open. The markets table is being refreshed to hold each market's fee data.
+## Net of costs (run 2026-10-25)
+Rule written and committed before running (`scheduled_net_study`, `poly_net`): buy Yes on every
+contract priced 5-60c at the horizon and hold to resolution. Cost = the market's own stated fee
+(rate x (p(1-p))^exponent; 0 where fees are not enabled; 53,778 markets now carry fee data) plus
+an assumed half-spread. **Primary: holdout, 3-day horizon, 1c half-spread; survives only if the
+95% CI lower bound is above 0.**
+
+**Primary result: passed.** Net +1.2c per contract, CI [+0.5, +1.9] (9,613 contracts, 4,987 events).
+
+Holdout, net per contract (95% CI) by half-spread:
+
+| Horizon | Gross | Fee | 0c | 0.5c | 1c | 2c | Break-even half-spread |
+|---|---|---|---|---|---|---|---|
+| 7d | +2.3 | 0.5 | +1.7 [0.9, 2.5] | +1.2 [0.4, 2.0] | +0.7 [-0.1, 1.5] | -0.3 [-1.1, 0.5] | 1.7c |
+| 3d | +2.8 | 0.6 | +2.2 [1.5, 2.9] | +1.7 [1.0, 2.4] | **+1.2 [0.5, 1.9]** | +0.2 [-0.5, 0.9] | 2.2c |
+| 1d | +3.8 | 0.6 | +3.2 [2.5, 3.9] | +2.7 [2.0, 3.4] | +2.2 [1.5, 2.9] | +1.2 [0.5, 1.9] | 3.2c |
+
+(Gross, fee and costs in cents per contract.) Discovery set is similar (3d: +0.9c at 1c, CI
+[+0.2, +1.6]; negative at 2c). The edge disappears at a 2c half-spread at 7d and 3d.
+
+Where it lives (holdout, 1c half-spread, net with CI): the 10-20c band (+3.4c at 3d, +4.7c at 1d)
+and the 20-40c band (+1.9c, +3.8c) carry it. The 40-60c band has none (-0.6c at 3d, -1.6c at 1d),
+and 5-10c only at 1d. Fee-free markets net +2.4c at 3d; fee-bearing markets still +0.9c [+0.1, +1.6].
+By scheduled-end month the 3d net at 1c was positive in 6 of 7 months (Feb +3.4c, Mar +1.8,
+Apr +0.6, May +0.8, Jun -0.8, Jul +2.9, Aug +1.0): mostly individually insignificant, but not one
+lucky month.
+
+## What could still kill it (not yet addressed)
+1. **Spread, unmeasured.** The 3d break-even is 2.2c, but its 95% lower bound is about 1.5c, so
+   the edge needs a half-spread under about 1.5c on contracts that trade little 1-3 days before
+   the deadline. The live Polymarket books in `data/raw` (top 50 markets by volume) can give an
+   estimate, biased toward liquid markets.
+2. **Hindsight volume filter.** The universe requires total volume >= $50k, known only at the
+   end; markets that attract late volume may differ. The gap is positive in all three volume tiers,
+   which argues against it, but only a universe fixed ex ante (live capture, or volume as of the
+   horizon) removes it.
+3. **Last trade is not the ask.** Fills are assumed at last price plus half-spread.
+4. **Fee history.** Fees use the market's current schedule, so the cost is overstated where fees
+   came in mid-life (conservative).
+5. **Capacity.** These are markets with $50k-$1M total volume; position sizes would be small.
+6. **Mechanism unexplained.** Contracts priced 10-40c within a few days of a deadline win more
+   often than their price, the opposite of the classic overpriced-longshot pattern. We have no
+   story for why, which raises the bar for believing it persists.
+
+## Next step
+Forward test: capture markets live at the horizon with an ex-ante universe (fixes 2) and measure
+spreads (fixes 1), then compare realized results to this prediction.
