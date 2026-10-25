@@ -53,8 +53,10 @@ efficient; one apparent anomaly turned out to be our own lookahead.
 - [x] Weather price-only check (2026-10-23, `docs/findings/2026-10-23-weather-calibration.md`): prices
       calibrated; no edge at a 2c half-spread; longshot-selling positive only if half-spread < ~1c
       (H2: forward test on fresh days + live spread measurement); forecast pipeline on hold
-- [ ] Weather spread session (2026-10-25): recorder series mode + `config/recorder-weather.toml`
-      built and smoke-tested; run live sessions to measure real bid/ask spreads on the brackets
+- [ ] Forward-test sessions (2026-10-25): recorder has a Kalshi series mode and a Polymarket
+      deadline mode (ex-ante universe: scheduled end within 7 days, volume to date >= $50k);
+      `config/recorder-forward.toml` runs both (smoke-tested: 718 tokens, 42 brackets). Run
+      sessions to measure real spreads and forward-test the scheduled-end gap and weather H2
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
 - [ ] Multiple-testing correction across the study set (deflated Sharpe style)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,

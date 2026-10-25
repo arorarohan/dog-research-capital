@@ -39,6 +39,12 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   hand-copied tier tables in `fees.py`; recheck them when a "fees lowered" banner shows up
   (per secondary reports, Coinbase restructured its tiers on 2026-09-16 and Kraken on 2026-07-09).
 
+## Recorder volume
+- **Polymarket deadline mode records ~600 `price_change` messages per second** for ~700 tokens
+  (about 22 MB per minute, ~1.3 GB per hour uncompressed while the hour is open; hourly zstd
+  compression cuts it roughly tenfold). Fine for a one-hour session; do not leave it running for
+  days without the `max_total_gb` valve. Stop with SIGINT so the open hour flushes.
+
 ## Books on near-resolved markets
 - **Locked books are not replay bugs.** Polymarket tokens of near-resolved markets sit at 99.8c /
   0.2c with bid == ask exactly (seen 2026-10-22: 4 tokens, 1,786 of 558,598 bars; none strictly

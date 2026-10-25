@@ -1,0 +1,28 @@
+# Forward-test session (one config, two datasets), written to its own directory data/raw_forward:
+#  1. Polymarket "deadline" universe: every open market scheduled to end within 7 days (and up to
+#     one day past its scheduled end) with at least $50k volume so far, chosen at the time,
+#     not by 24h volume. Books and price changes are recorded to resolution; the _catalog
+#     records hold volume to date at each hourly refresh. Tests the scheduled-end gap net of real
+#     spreads with an ex-ante universe.
+#  2. Kalshi daily-high weather brackets (7 cities): real bid/ask for hypothesis H2.
+# Run: uv run drc-record --config config/recorder-forward.toml
+# Stop with Ctrl-C (or kill -INT) so the open hour is flushed.
+
+[recorder]
+data_dir = "data/raw_forward"
+flush_secs = 5
+maintenance_secs = 600
+max_total_gb = 30
+
+[polymarket]
+enabled = true
+deadline_max_days = 7
+min_volume = 50000
+max_markets = 400
+refresh_secs = 3600
+
+[kalshi]
+enabled = true
+poll_secs = 60
+catalog_secs = 3600
+series = ["KXHIGHNY", "KXHIGHCHI", "KXHIGHMIA", "KXHIGHAUS", "KXHIGHLAX", "KXHIGHDEN", "KXHIGHPHIL"]
