@@ -8,6 +8,8 @@ See `CLAUDE.md` for project conventions.
 uv sync
 uv run pytest
 uv run drc-record --config config/recorder.toml
+# weather-bracket spread session (Kalshi KXHIGH* series, own data dir data/raw_weather):
+uv run drc-record --config config/recorder-weather.toml
 ```
 
 ## Recorder

@@ -34,7 +34,12 @@ def build_sources(cfg: dict, only: set[str] | None = None) -> list:
     if on("kalshi"):
         k = cfg["kalshi"]
         sources.append(
-            KalshiPoller(k.get("top_n", 50), k.get("poll_secs", 15), k.get("catalog_secs", 3600))
+            KalshiPoller(
+                k.get("top_n", 50),
+                k.get("poll_secs", 15),
+                k.get("catalog_secs", 3600),
+                series=tuple(k.get("series", ())),
+            )
         )
     return sources
 

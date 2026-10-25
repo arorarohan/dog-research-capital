@@ -77,3 +77,33 @@ async def test_parlay_trades_are_excluded(tmp_path):
         await KalshiPoller().poll_trades(client, w)
     w.close()
     assert [t["trade_id"] for t in _all(tmp_path, "kalshi", "trades")] == ["n"]
+
+
+async def test_series_mode_tracks_every_open_market_of_those_series_only(tmp_path):
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/trades"):
+            trades = [
+                {"trade_id": "w", "ticker": "KXHIGHNY-26OCT25-B70.5"},
+                {"trade_id": "o", "ticker": "KXBTC15M-X"},
+                {"trade_id": "x", "ticker": "KXHIGHNYC-LOOKALIKE"},
+            ]
+            return httpx.Response(200, json={"cursor": "", "trades": trades})
+        series = request.url.params["series_ticker"]
+        asked.append((series, request.url.params["status"]))
+        return httpx.Response(
+            200,
+            json={"cursor": "", "markets": [{"ticker": f"{series}-26OCT25-T{i}"} for i in (1, 2)]},
+        )
+
+    w = RawWriter(tmp_path)
+    poller = KalshiPoller(top_n=1, series=("KXHIGHNY", "KXHIGHCHI"))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await poller.refresh_catalog(client, w)
+        await poller.poll_trades(client, w)
+    w.close()
+    assert asked == [("KXHIGHNY", "open"), ("KXHIGHCHI", "open")]
+    assert len(poller.tickers) == 4  # top_n is ignored in series mode
+    assert [t["trade_id"] for t in _all(tmp_path, "kalshi", "trades")] == ["w"]

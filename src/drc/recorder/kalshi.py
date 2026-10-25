@@ -4,6 +4,11 @@ Kalshi's websocket requires API-key auth, so for now we poll the public endpoint
 therefore sampled snapshots (every `poll_secs`), not a full event stream; we can upgrade to
 the websocket once we have a key. The books endpoint does not echo the ticker, so each stored
 record is wrapped as `{"ticker": ..., "resp": <response>}`.
+
+Two modes. Default: the top-N open markets by 24h volume across Kalshi. Series mode
+(`series=("KXHIGHNY", ...)`): every open market of just those series, and only their trades;
+used to measure spreads in thin niche markets (e.g. daily-high weather brackets) that a
+global top-N would never pick.
 """
 
 from __future__ import annotations
@@ -36,8 +41,10 @@ class KalshiPoller:
         catalog_secs: float = 3600.0,
         concurrency: int = 5,
         exclude_trade_prefixes: tuple[str, ...] = ("KXMVE",),
+        series: tuple[str, ...] = (),
     ) -> None:
         self.exclude_trade_prefixes = exclude_trade_prefixes
+        self.series = tuple(series)
         self.top_n = top_n
         self.poll_secs = poll_secs
         self.catalog_secs = catalog_secs
@@ -46,12 +53,11 @@ class KalshiPoller:
         self._seen_trades: OrderedDict[str, None] = OrderedDict()
         self._last_trade_ts = int(time.time())
 
-    async def refresh_catalog(self, client: httpx.AsyncClient, writer: RawWriter) -> None:
-        """Rank all open non-parlay markets by 24h volume and keep the top N."""
+    async def _open_markets(self, client: httpx.AsyncClient, **filters: str) -> list[dict]:
         markets: list[dict] = []
         cursor = None
         for _ in range(MAX_CATALOG_PAGES):
-            params = {"limit": 1000, "status": "open", "mve_filter": "exclude"}
+            params = {"limit": 1000, "status": "open", **filters}
             if cursor:
                 params["cursor"] = cursor
             resp = await client.get(f"{BASE}/markets", params=params)
@@ -61,6 +67,19 @@ class KalshiPoller:
             cursor = body.get("cursor")
             if not cursor:
                 break
+        return markets
+
+    async def refresh_catalog(self, client: httpx.AsyncClient, writer: RawWriter) -> None:
+        """Pick the markets to poll: all open markets of `series`, else the top N by 24h volume."""
+        if self.series:
+            top = []
+            for name in self.series:
+                top += await self._open_markets(client, series_ticker=name)
+            self.tickers = [m["ticker"] for m in top]
+            writer.write(self.venue, "_catalog", orjson.dumps(top))
+            log.info("kalshi tracking %d open markets in %s", len(top), ",".join(self.series))
+            return
+        markets = await self._open_markets(client, mve_filter="exclude")
         markets.sort(key=lambda m: float(m.get("volume_24h_fp") or 0), reverse=True)
         top = markets[: self.top_n]
         self.tickers = [m["ticker"] for m in top]
@@ -95,6 +114,10 @@ class KalshiPoller:
                 tid = trade["trade_id"]
                 if trade["ticker"].startswith(self.exclude_trade_prefixes):
                     continue  # multivariate parlays: ~20% of the feed, not our focus
+                if self.series and not trade["ticker"].startswith(
+                    tuple(f"{name}-" for name in self.series)
+                ):
+                    continue
                 if tid in self._seen_trades:
                     continue
                 self._seen_trades[tid] = None
