@@ -253,6 +253,7 @@ build, (c) before the forward test's clock officially starts.
   `data/ledger/` as a nested git repo; main repo is public, so nothing sensitive goes there.
 - Q9 capital: accepted ($100k treasury, $10k per fund, $50-100 per trade).
 - Q10 charter: accepted as v0; Rohan reviews the final file before it freezes.
-- Q11 test length: Rohan asked what the decision is; restated as "accept slow edge validation,
-  judging costs early" (recommended) versus widening the universe; answer pending.
+- Q11 test length: **accepted** 2026-10-25: judge costs (spreads, fill rates, fees) early and call
+  the edge inconclusive until ~9,000 independent events exist. A wider-universe fund, if ever, is
+  a separate hypothesis with its own fund.
 - Q12 hosting: cloud VM as soon as possible. Scripts in `deploy/`, steps in `docs/deploy.md`.
