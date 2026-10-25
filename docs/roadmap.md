@@ -74,8 +74,9 @@ Direction decided with Rohan 2026-10-25 (`docs/phase4-scoping.md` section 0): de
 one automatic paper fund per hypothesis, judged as if it handled real money, simulation-only by
 construction, web app later. Design: `docs/design/forward-test-platform.md`. A thin slice runs
 **ahead of Phase 3** because decision-time snapshots cannot be recreated.
-- [ ] Slice 0: append-only hash-chained event log (SQLite), depth-aware `SimBroker`, risk checks,
-      reconciliation, treasury/firm-total projections
+- [x] Slice 0 (2026-10-25, `src/drc/forward/`, 46 tests): append-only hash-chained event log
+      (SQLite), depth-aware `SimBroker`, pre-trade risk checks, reconciliation, fund state and
+      treasury/firm-total projections. Not yet wired to any venue or strategy (Slice 1).
 - [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
       scheduling mechanism chosen, static HTML report
 - [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted

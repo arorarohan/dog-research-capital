@@ -32,3 +32,4 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [out-of-sample testing](concepts/out-of-sample.md) | taught | Holdout and forward tests: the only way a found pattern becomes evidence; write the rule first |
 | [NAV, blotter, exposure](concepts/nav-and-blotter.md) | taught | A fund's marked value, its trade list, and what we lose per event; Phase 4's core views |
 | [paper trading and forward test](concepts/forward-test.md) | taught | Pre-declared rule run on live prices with simulated fills; decision-time snapshots are the irreplaceable data |
+| [walking the book](concepts/walking-the-book.md) | new | A big order eats several price levels; we cap fills at a share of displayed depth |
