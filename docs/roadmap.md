@@ -69,7 +69,11 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Live sessions: forward paper-trading of surviving strategies with full trade logging;
   compare live paper results to backtest predictions (the gap is itself a result)
 
-## Phase 4: Platform and UI (later)
+## Phase 4: Platform and UI (scoping 2026-10-25)
+Draft scope, direction options and open questions: `docs/phase4-scoping.md`. Recommended
+direction: event-log-based paper funds + research registry, built in thin slices, with a
+forward-test session logger possibly pulled ahead of Phase 3. Bullets below are the old plan
+and will be rewritten once Rohan picks a direction.
 - Dashboard: fund NAVs, positions, blotter, signal monitors, research runs
 - Multiple made-up funds with separate mandates and capital; run registry
 - One-command "session" workflow: start recorder + paper trader, summarize, shut down

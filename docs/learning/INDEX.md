@@ -30,3 +30,5 @@ Status: `taught` = explained to Rohan; `new` = not yet explained (explain on fir
 | [multiple comparisons](concepts/multiple-comparisons.md) | taught | Many tests => some false positives; pre-declare, correct, confirm out of sample |
 | [cluster bootstrap](concepts/cluster-bootstrap.md) | taught | Resample whole events, not rows; exact bound when every outcome in a bin is identical |
 | [out-of-sample testing](concepts/out-of-sample.md) | taught | Holdout and forward tests: the only way a found pattern becomes evidence; write the rule first |
+| [NAV, blotter, exposure](concepts/nav-and-blotter.md) | new | A fund's marked value, its trade list, and what we lose per event; Phase 4's core views |
+| [paper trading and forward test](concepts/forward-test.md) | new | Pre-declared rule run on live prices with simulated fills; decision-time snapshots are the irreplaceable data |
