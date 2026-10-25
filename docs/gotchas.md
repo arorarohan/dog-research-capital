@@ -39,6 +39,13 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   hand-copied tier tables in `fees.py`; recheck them when a "fees lowered" banner shows up
   (per secondary reports, Coinbase restructured its tiers on 2026-09-16 and Kraken on 2026-07-09).
 
+## Books on near-resolved markets
+- **Locked books are not replay bugs.** Polymarket tokens of near-resolved markets sit at 99.8c /
+  0.2c with bid == ask exactly (seen 2026-10-22: 4 tokens, 1,786 of 558,598 bars; none strictly
+  crossed). Spread studies must require ask > bid. `drc-bars` counts these as crossed states.
+- **`data/norm` is stale until re-run.** The normalized bars had been built mid-recording and
+  covered 20 of the 100 recorded minutes; re-run `drc-normalize` and `drc-bars` before analysis.
+
 ## Historical APIs
 - **Kalshi 429s at ~4 requests/sec sustained.** `backfill/http.py` spaces requests and
   retries with backoff; keep `min_interval` >= 0.25s.

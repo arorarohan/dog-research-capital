@@ -127,7 +127,7 @@ Apr +0.6, May +0.8, Jun -0.8, Jul +2.9, Aug +1.0): mostly individually insignifi
 lucky month.
 
 ## What could still kill it (not yet addressed)
-1. **Spread, unmeasured.** The 3d break-even is 2.2c, but its 95% lower bound is about 1.5c, so
+1. **Spread, only partly measured (see the estimate below).** The 3d break-even is 2.2c, but its 95% lower bound is about 1.5c, so
    the edge needs a half-spread under about 1.5c on contracts that trade little 1-3 days before
    the deadline. The live Polymarket books in `data/raw` (top 50 markets by volume) can give an
    estimate, biased toward liquid markets.
@@ -146,3 +146,35 @@ lucky month.
 ## Next step
 Forward test: capture markets live at the horizon with an ex-ante universe (fixes 2) and measure
 spreads (fixes 1), then compare realized results to this prediction.
+
+## Spread estimate from recorded books (2026-10-25)
+`uv run python -m drc.research.spreads` on the live recording of 2026-10-22 (18:44-20:25 UTC,
+1.87 hours, 110 tokens = 55 markets, 558,598 one-second bars). Two-sided, strictly positive
+spreads only (110,618 bars were one-sided; 1,786 locked, see gotchas). Per-token median first, so
+busy tokens do not dominate.
+
+In the strategy's price band (mid 5-60c): 41 tokens, **median spread 1c (the tick), median
+half-spread 0.5c**; every token's median spread was at most 2c. At a 0.5c half-spread the holdout
+3d trade nets +1.7c (CI [+1.0, +2.4]).
+
+| Mid price | Tokens | Median spread | Tokens at <= 1c | Median depth at best ask |
+|---|---|---|---|---|
+| 5-10c | 13 | 1c | 92% | $471 |
+| 10-20c | 9 | 1c | 67% | $91 |
+| 20-40c | 14 | 1c | 93% | $2,913 |
+| 40-60c | 20 | 1c | 100% | $40,749 |
+
+By days to the scheduled end: 23 tokens within 1 day, 1 token at 1-3 days, 7 at 3-7 days, 8 at
+7-30 days, 2 beyond. Tick size 0.001 tokens quote 0.2c spreads.
+
+**Why this only partly answers the question.**
+- **Selection:** the recorder follows the top 50 markets by 24h volume, so these are the most
+  liquid markets on Polymarket. The strategy's universe (total volume $50k-$1M, 1-7 days from the
+  end) is much quieter and likely quotes wider. Only 8 recorded tokens sit in the 1-7 day range.
+- **Duration:** under two hours of one evening; spreads vary with time of day.
+- **Depth:** at the best ask the 10-20c band has a median of only ~$91, the band where the edge is
+  strongest (net +3.4c at 3d). Fills beyond that would walk the book, and capacity is small.
+So: with 1c-tick quoting the edge has room (break-even 2.2c at 3d), but the spread for the actual
+universe is still unmeasured. The fix is live capture of an ex-ante universe: markets selected at
+the time by scheduled end within 1-7 days and volume to date (not by 24h volume), books recorded
+through to resolution. That also removes the hindsight volume filter.
