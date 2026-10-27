@@ -14,4 +14,4 @@ labels: [research]
 <!-- Written before running: what result means pass / kill. Account for multiple testing. -->
 
 ## Owner
-<!-- Killing your own hypothesis needs no sign-off; approving needs both Rohan and Chris. -->
+<!-- Who is running this. No sign-off needed to approve, forward-test or kill. -->
