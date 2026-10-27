@@ -115,3 +115,8 @@ cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`; waiting on Rohan to create th
 - Fee schedules verified 2026-10-23 (Polymarket per market from Gamma; Kraken primary source; Coinbase from secondary copies, recheck signed in). Still open: Kalshi's fee can also vary by series (`fee_type` / `fee_multiplier` on its API), and the engine does not roll 30-day volume or model maker rebates.
 - How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go? (Kalshi KXBTC15M historical tier confirmed to at least 2026-08-12.)
 - Do we need an API key for Kalshi's websocket (live sessions at higher fidelity)?
+
+## Research notes (2026-10-23)
+- Added [twelve structural-alpha proposals](research/2026-10-23-structural-alpha.md) as a
+  conceptual research deliverable. No empirical edge claimed or implementation phase completed;
+  existing studies and the scheduled-calibration holdout retain their scope.
