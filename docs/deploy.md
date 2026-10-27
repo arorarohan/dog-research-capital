@@ -4,7 +4,12 @@ Why: the forward test must run every day whether or not the laptop is awake
 (`docs/design/forward-test-platform.md`, decision 2026-10-25). The recorder already runs unchanged
 on Linux; the daily `drc-session` job (Slice 1, not built yet) joins it as a systemd timer.
 
-Status: scripts written, **untested on a real VM** (no VM exists yet).
+Status (2026-10-27): **tested.** VM `drc-vm` runs in Oracle London (AD-3, `VM.Standard.A1.Flex`,
+2 OCPU / 12 GB / 100 GB, Ubuntu 24.04 aarch64). `setup-vm.sh` ran clean; all five venue checks
+returned HTTP 200 from London; the recorder runs as the `drc-record` systemd service.
+Access: `ssh -i ~/.ssh/id_ed25519_drc ubuntu@<public ip>` (key and OCI API config live in
+`~/.ssh` and `~/.oci` on Rohan's laptop only, never in the repo). Network: one VCN, public
+subnet, SSH is the only inbound port. Created with the OCI CLI (`uv tool install oci-cli`).
 
 ## What Rohan does (needs a human and a payment card for identity checks)
 1. Create a free-tier VM, Ubuntu 22.04/24.04, with an SSH key.
