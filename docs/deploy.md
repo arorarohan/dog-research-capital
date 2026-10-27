@@ -24,6 +24,16 @@ subnet, SSH is the only inbound port. Created with the OCI CLI (`uv tool install
    `git clone https://github.com/arorarohan/dog-research-capital.git && bash dog-research-capital/deploy/setup-vm.sh`
 3. Read the connectivity lines, then `sudo systemctl enable --now drc-record`.
 
+## What the VM records (changed 2026-10-27, issue #17)
+The service runs `config/recorder-forward.toml`: the Polymarket deadline universe (ex-ante,
+chosen by scheduled end and volume to date) plus the Kalshi weather series, into
+`data/raw_forward`. No crypto books. Measured on the generic config (`config/recorder.toml`),
+which grew ~2.4 GB/day compressed and would have filled the 94 GB disk in ~55 days: channels
+without a retention rule are kept forever, and the `max_total_gb` valve only prunes channels
+that have a rule. The forward config therefore sets 30-day retention on Polymarket
+`price_change` and Kalshi `trades` (starting values, re-measure growth and adjust). The unit
+stops with SIGINT so the open hour is flushed.
+
 ## Notes
 - Data stays on the VM (`data/raw`, gitignored); the recorder's `max_total_gb` safety valve
   applies. Size the disk accordingly (the laptop's 610 MB came from a few hours of sessions).

@@ -26,3 +26,17 @@ enabled = true
 poll_secs = 60
 catalog_secs = 3600
 series = ["KXHIGHNY", "KXHIGHCHI", "KXHIGHMIA", "KXHIGHAUS", "KXHIGHLAX", "KXHIGHDEN", "KXHIGHPHIL"]
+
+# Retention (raw days). Everything not listed is kept forever (catalogs, meta, books, last trades).
+# Starting values from the 2026-10-27 VM measurement of the generic config: price_change was the
+# largest channel (~1.1 GB/day compressed there). Revisit after measuring this config's growth.
+# Raw files are only on the VM until normalized or copied elsewhere, so pruned days are gone.
+[[retention]]
+venue = "polymarket"
+channel = "price_change"
+max_age_days = 30
+
+[[retention]]
+venue = "kalshi"
+channel = "trades"
+max_age_days = 30
