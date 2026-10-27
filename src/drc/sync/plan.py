@@ -21,6 +21,7 @@ from pathlib import Path
 RAW_ROOTS = ("raw", "raw_forward", "raw_weather")
 NORM_ROOTS = ("norm", "norm_forward")
 DAY = 86400
+IDLE_SECS = 900  # a plain file untouched this long is finished (nobody is writing to it)
 
 
 @dataclass(frozen=True)

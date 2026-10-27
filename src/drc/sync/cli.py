@@ -21,6 +21,7 @@ import time
 import tomllib
 from pathlib import Path
 
+from drc.recorder.writer import RawWriter, stale_plain_files
 from drc.sync import plan
 from drc.sync.rclone import Rclone, RcloneError
 
@@ -72,8 +73,27 @@ class Archive:
                 False,
             )
 
+    def compress_stale(self, dry_run: bool) -> int:
+        """Finished-but-uncompressed hours (a session ended before the recorder's own
+        maintenance ran) are compressed first, using the recorder's own compressor, because only
+        `.jsonl.zst` files are uploaded. Files touched in the last 15 minutes are left alone."""
+        n = 0
+        for root in plan.RAW_ROOTS:
+            base = self.data / root
+            if not base.is_dir():
+                continue
+            if dry_run:
+                n += len(stale_plain_files(base, plan.IDLE_SECS))
+            else:
+                n += RawWriter(base).compress_closed(min_idle_secs=plan.IDLE_SECS)
+        if n:
+            print(f"{'would compress' if dry_run else 'compressed'} {n} finished plain hours")
+        return n
+
     def push(self, what: tuple[str, ...], dry_run: bool) -> int:
         failures = 0
+        if "raw" in what:
+            self.compress_stale(dry_run)
         for kind, src, dst, rels, immutable in self.groups(what):
             if not rels:
                 continue

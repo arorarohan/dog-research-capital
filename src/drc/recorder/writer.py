@@ -9,6 +9,7 @@ most the unflushed buffer.
 from __future__ import annotations
 
 import calendar
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -84,23 +85,52 @@ class RawWriter:
             fh.close()
         self._files.clear()
 
-    def compress_closed(self) -> int:
-        """Compress every plain .jsonl that is not currently open. Returns files compressed."""
+    def compress_closed(self, min_idle_secs: float = 0.0) -> int:
+        """Compress every plain .jsonl that is not currently open. Returns files compressed.
+
+        `min_idle_secs` additionally skips files modified more recently than that, for callers
+        outside the recorder process (drc-sync) that cannot see which files are still open."""
         open_paths = {p for _, p, _ in self._files.values()}
-        current_hour = time.time_ns() // NS_PER_HOUR
         cctx = zstandard.ZstdCompressor(level=6)
         n = 0
-        for path in self.root.rglob("*.jsonl"):
-            # never touch the current hour: a restart would append to it
-            if path in open_paths or _path_hour(path) >= current_hour:
+        for path in stale_plain_files(self.root, min_idle_secs=min_idle_secs):
+            if path in open_paths:
                 continue
             tmp = path.with_name(path.name + ".zst.tmp")
             with path.open("rb") as src, tmp.open("wb") as dst:
                 cctx.copy_stream(src, dst)
+            # the plain file is the only copy until proven otherwise: read the compressed
+            # copy back and compare content hashes before deleting anything
+            if _sha256(path, compressed=False) != _sha256(tmp, compressed=True):
+                tmp.unlink()
+                continue
             tmp.replace(path.with_name(path.name + ".zst"))
             path.unlink()
             n += 1
         return n
+
+
+def stale_plain_files(
+    root: Path, min_idle_secs: float = 0.0, now: float | None = None
+) -> list[Path]:
+    """Plain `.jsonl` files that are finished: their hour is over, and (optionally) nothing has
+    written to them for `min_idle_secs`. Never the current hour: a restart would append to it."""
+    now = time.time() if now is None else now
+    current_hour = int(now * 1e9) // NS_PER_HOUR
+    return [
+        p
+        for p in sorted(root.rglob("*.jsonl"))
+        if _path_hour(p) < current_hour and now - p.stat().st_mtime >= min_idle_secs
+    ]
+
+
+def _sha256(path: Path, compressed: bool) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        stream = zstandard.ZstdDecompressor().stream_reader(fh) if compressed else fh
+        while chunk := stream.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _path_hour(path: Path) -> int:

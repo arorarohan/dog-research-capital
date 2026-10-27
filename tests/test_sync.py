@@ -228,3 +228,35 @@ def test_remote_listing_ignores_non_raw_and_bad_paths():
 def test_rclone_error_surfaces_stderr():
     with pytest.raises(RcloneError, match="boom"):
         Rclone("rclone", FakeRunner(rc=3)).run("mkdir", "x")
+
+
+def test_push_compresses_finished_plain_hours_first_and_uploads_them(tmp_path):
+    import os
+
+    from drc.recorder.writer import read_lines
+
+    d = tmp_path / "data" / "raw"
+    stale = d / "kalshi/trades/2026-10-25/11.jsonl"  # session ended mid-hour, never compressed
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b'{"t":1,"m":{"a":1}}\n{"t":2,"m":{"a":2}}\n')
+    os.utime(stale, (NOW - 7200, NOW - 7200))
+    fake = FakeRunner()
+    arc = archive(tmp_path, fake)
+    arc.push(("raw",), dry_run=False)
+    zst = stale.with_name("11.jsonl.zst")
+    assert zst.exists() and not stale.exists()
+    assert [r["t"] for r in read_lines(zst)] == [1, 2]  # content survives intact
+    uploaded = [v for v in fake.files_from.values() if "kalshi/trades/2026-10-25/11.jsonl.zst" in v]
+    assert uploaded
+
+
+def test_dry_run_does_not_compress_anything(tmp_path, capsys):
+    import os
+
+    d = tmp_path / "data" / "raw"
+    stale = d / "kalshi/trades/2026-10-25/11.jsonl"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b'{"t":1,"m":{"a":1}}\n')
+    os.utime(stale, (NOW - 7200, NOW - 7200))
+    archive(tmp_path, FakeRunner()).push(("raw",), dry_run=True)
+    assert stale.exists() and "would compress 1" in capsys.readouterr().out
