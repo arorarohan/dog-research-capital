@@ -1,0 +1,11 @@
+# drc-sync settings (cloud archive on Google Drive via rclone). See docs/sync.md.
+# Per-machine settings (which host this is) are NOT here: set DRC_HOST in the environment.
+
+[remote]
+name = "gdrive:drc"          # rclone remote and root folder
+
+[retention]
+remote_raw_days = 15         # raw (.jsonl.zst) older than this expires on Drive
+remote_raw_cap_gb = 300      # if raw on Drive exceeds this, oldest days expire first
+local_raw_days = 7           # local raw older than this is pruned, but only if Drive has it verified
+sample_hour_utc = 12         # this hour of every day is also copied to sample/, kept forever
