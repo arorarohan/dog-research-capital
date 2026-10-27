@@ -27,9 +27,8 @@ decisions) in the PR that lands a milestone or changes priorities.
   Rohan says so in that session.
 - **Keep up with main** by `git merge origin/main` into your branch, not rebase. No force-push
   except `--force-with-lease` on your own branch; no destructive git commands without asking.
-- **Research decisions:** approving a result (declaring an edge, promoting to forward test or
-  paper fund) needs both Rohan's and Chris's sign-off. Killing your own hypothesis needs none;
-  killing the other person's needs their agreement.
+- **Research decisions need no sign-off (for now):** either person can approve, forward-test,
+  or kill a hypothesis. Record the decision and why in the PR or `docs/findings/`.
 - **Personal stuff stays local:** each person's preferences and learning notes go in
   gitignored `CLAUDE.local.md` / `.local/`, never in `CLAUDE.md`.
 

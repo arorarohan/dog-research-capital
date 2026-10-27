@@ -66,11 +66,9 @@ GitHub issues are the project tracker. Every piece of work is an issue, a branch
 - Close issues through PRs (`Closes #N`), not by hand, unless dropping them (then comment why).
 
 ## Research decisions
-- **Approving** a result needs sign-off from **both** Rohan and Chris, as comments on the
-  PR or issue. Approving means: declaring an edge real, promoting a hypothesis to a forward
-  test or paper fund, or changing a pre-declared decision rule.
-- **Killing** a hypothesis needs no permission if it is your own work. Write up why in
-  `docs/findings/` as usual. Killing the other person's work needs their agreement first.
+- **No sign-off needed (for now).** Either person can approve a result, start a forward test,
+  or kill a hypothesis (theirs or the other's) without the other's approval. Record the
+  decision and the reasoning in the PR or `docs/findings/` so the other person can follow it.
 - Decision rules are written down before a test runs (existing rule), in the PR or findings doc.
 
 ## Shared files that conflict

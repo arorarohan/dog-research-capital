@@ -10,7 +10,7 @@ Closes #
 <!-- Delete if not research. -->
 - Decision rule (written before running):
 - Result, with sample size and cost assumptions:
-- Asks for approval (needs both Rohan and Chris) / kills a hypothesis (whose?):
+- Decision taken (approve / forward-test / kill) and why:
 
 ## Checklist
 - [ ] Branch is up to date with `main` (`git merge origin/main`)
