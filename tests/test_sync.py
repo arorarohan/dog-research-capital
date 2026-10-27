@@ -260,3 +260,13 @@ def test_dry_run_does_not_compress_anything(tmp_path, capsys):
     os.utime(stale, (NOW - 7200, NOW - 7200))
     archive(tmp_path, FakeRunner()).push(("raw",), dry_run=True)
     assert stale.exists() and "would compress 1" in capsys.readouterr().out
+
+
+def test_sample_is_one_hour_on_one_weekday():
+    files = [
+        plan.RawFile("raw", "v", "book", d, h, 1)
+        for d in ("2026-10-26", "2026-10-27")  # Monday, Tuesday
+        for h in (11, 12)
+    ]
+    assert [(f.date, f.hour) for f in plan.sample_files(files, 12, 0)] == [("2026-10-26", 12)]
+    assert len(plan.sample_files(files, 12)) == 2  # no weekday filter: every day

@@ -2,7 +2,7 @@
 
 Remote layout (one subtree per machine so two recorders never overwrite each other):
     <remote>/<host>/raw/<root>/<venue>/<channel>/<date>/<HH>.jsonl.zst   copy-only, immutable
-    <remote>/<host>/sample/<root>/...                                    one hour a day, forever
+    <remote>/<host>/sample/<root>/...                                    one hour a week, forever
     <remote>/<host>/norm/<root>/<table>/venue=V/date=D/hour=HH.parquet   overwritten if rebuilt
     <remote>/<host>/hist/...  <remote>/<host>/runs/...
 
@@ -95,8 +95,17 @@ def local_tree_rels(base: Path) -> list[str]:
     )
 
 
-def sample_files(files: list[RawFile], sample_hour: int) -> list[RawFile]:
-    return [f for f in files if f.hour == sample_hour and not f.exempt]
+def sample_files(
+    files: list[RawFile], sample_hour: int, sample_weekday: int | None = None
+) -> list[RawFile]:
+    """One hour of every raw channel, on one weekday if given (0 = Monday), kept forever."""
+    return [
+        f
+        for f in files
+        if f.hour == sample_hour
+        and not f.exempt
+        and (sample_weekday is None or time.strptime(f.date, "%Y-%m-%d").tm_wday == sample_weekday)
+    ]
 
 
 def older_than(f: RawFile, days: float, now: float) -> bool:

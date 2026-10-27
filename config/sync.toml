@@ -8,4 +8,5 @@ name = "gdrive:drc"          # rclone remote and root folder
 remote_raw_days = 15         # raw (.jsonl.zst) older than this expires on Drive
 remote_raw_cap_gb = 300      # if raw on Drive exceeds this, oldest days expire first
 local_raw_days = 7           # local raw older than this is pruned, but only if Drive has it verified
-sample_hour_utc = 12         # this hour of every day is also copied to sample/, kept forever
+sample_hour_utc = 12         # this hour of the sample day is also copied to sample/, kept forever
+sample_weekday = 0           # 0 = Monday: one hour a week (~8 GB/yr); every day would be ~58 GB/yr

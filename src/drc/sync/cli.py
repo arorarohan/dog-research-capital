@@ -35,9 +35,17 @@ def load_config(path: Path) -> dict:
 class Archive:
     """One machine's view of the archive."""
 
-    def __init__(self, rc: Rclone, remote: str, host: str, data: Path, sample_hour: int):
+    def __init__(
+        self,
+        rc: Rclone,
+        remote: str,
+        host: str,
+        data: Path,
+        sample_hour: int,
+        sample_weekday: int | None = None,
+    ):
         self.rc, self.remote, self.host, self.data = rc, remote.rstrip("/"), host, data
-        self.sample_hour = sample_hour
+        self.sample_hour, self.sample_weekday = sample_hour, sample_weekday
 
     def dest(self, kind: str, root: str = "") -> str:
         return "/".join(p for p in (self.remote, self.host, kind, root) if p)
@@ -50,7 +58,7 @@ class Archive:
             for root in plan.RAW_ROOTS:
                 mine = [f for f in raw if f.root == root]
                 yield "raw", data / root, self.dest("raw", root), [f.rel for f in mine], True
-                smp = plan.sample_files(mine, self.sample_hour)
+                smp = plan.sample_files(mine, self.sample_hour, self.sample_weekday)
                 yield "sample", data / root, self.dest("sample", root), [f.rel for f in smp], True
         if "norm" in what:
             for root in plan.NORM_ROOTS:
@@ -214,7 +222,14 @@ def main(argv: list[str] | None = None) -> int:
     bad = set(what) - set(WHATS)
     if bad:
         ap.error(f"unknown --what {sorted(bad)}; choose from {WHATS}")
-    arc = Archive(Rclone(), remote, args.host, args.data, ret.get("sample_hour_utc", 12))
+    arc = Archive(
+        Rclone(),
+        remote,
+        args.host,
+        args.data,
+        ret.get("sample_hour_utc", 12),
+        ret.get("sample_weekday"),
+    )
     now = time.time()
 
     try:
