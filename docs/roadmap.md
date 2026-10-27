@@ -12,6 +12,14 @@ Status key: done / now / next / later / parked. Dates are absolute.
 - Free data only. Python first; Rust only when profiling demands it.
 - Every result carries its sample size and cost assumptions. Paper PnL flatters; be skeptical.
 
+## Team decisions (2026-10-27)
+- Chris joins. GitHub issues are the task tracker; all work goes issue -> branch -> PR, and
+  Rohan reviews and merges (merge commits, branches kept). See `docs/workflow.md`.
+- Research decisions (approve, forward-test, kill) need no sign-off from the other person for
+  now; record them in the PR or findings doc (revised 2026-10-27, issue #13).
+- The learning library is personal and local (`CLAUDE.local.md`, `.local/`), not in the repo.
+- Shared market data will come from the planned recorder VM; until then each machine backfills.
+
 ## Phase 0: Foundation (done)
 - Recorder (Coinbase, Kraken, Polymarket, Kalshi) with gap-aware raw capture
 - Raw -> Parquet normalization, book replay, 1s bars
@@ -43,9 +51,23 @@ efficient; one apparent anomaly turned out to be our own lookahead.
 - [x] Cross-venue comparison v1 (Kalshi vs Polymarket 15-minute)
 - [x] Redo Polymarket general calibration anchored to *scheduled* end dates (2026-10-23, see
       `docs/findings/2026-10-23-scheduled-calibration.md`): old effect mostly an artifact, small
-      positive gap at 1-7d and favorites overpriced at 3d. Holdout test of H1 pending.
+      positive gap at 1-7d replicated on the holdout (+2 to +4 pts, gross); favorites hypothesis H1
+      killed on the holdout. Net of per-market fees and a 1c half-spread the 5-60c gap still nets
+      +1.2c (3d, holdout, pre-declared primary passed 2026-10-25); spread and hindsight volume
+      filter unresolved: forward test next. Recorded liquid Polymarket books show a 1c median spread
+      (0.5c half-spread) in the 5-60c band; the quiet universe it trades is unmeasured.
 - [ ] Digital model v2: second-level spot (Binance 1s), refresh klines past 2026-10-21, better
       volatility; more 15-minute days to narrow intervals
+- [x] Weather price-only check (2026-10-23, `docs/findings/2026-10-23-weather-calibration.md`): prices
+      calibrated; no edge at a 2c half-spread; longshot-selling positive only if half-spread < ~1c
+      (H2: forward test on fresh days + live spread measurement); forecast pipeline on hold
+- [ ] Forward-test sessions (2026-10-25): recorder has a Kalshi series mode and a Polymarket
+      deadline mode (ex-ante universe: scheduled end within 7 days, volume to date >= $50k);
+      `config/recorder-forward.toml` runs both (smoke-tested: 718 tokens, 42 brackets). Run
+      sessions to measure real spreads and forward-test the scheduled-end gap and weather H2.
+      Session 1 done 2026-10-25 (`docs/findings/2026-10-25-forward-session-1.md`): mean half-spread
+      1.1c on the Polymarket strategy universe but only ~$45 median depth at the best ask; weather
+      longshots often have no Yes bid (H2 not executable at the tails). More sessions needed.
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
 - [ ] Multiple-testing correction across the study set (deflated Sharpe style)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,
@@ -60,23 +82,37 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Live sessions: forward paper-trading of surviving strategies with full trade logging;
   compare live paper results to backtest predictions (the gap is itself a result)
 
-## Phase 4: Platform and UI (later)
-- Dashboard: fund NAVs, positions, blotter, signal monitors, research runs
-- Multiple made-up funds with separate mandates and capital; run registry
-- One-command "session" workflow: start recorder + paper trader, summarize, shut down
+## Phase 4: Forward-test platform and UI (scoped 2026-10-25)
+Direction decided with Rohan 2026-10-25 (`docs/phase4-scoping.md` section 0): decisions first,
+one automatic paper fund per hypothesis, judged as if it handled real money, simulation-only by
+construction, web app later. Design: `docs/design/forward-test-platform.md`. A thin slice runs
+**ahead of Phase 3** because decision-time snapshots cannot be recreated.
+- [x] Slice 0 (2026-10-25, `src/drc/forward/`, 46 tests): append-only hash-chained event log
+      (SQLite), depth-aware `SimBroker`, pre-trade risk checks, reconciliation, fund state and
+      treasury/firm-total projections. Not yet wired to any venue or strategy (Slice 1).
+- [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
+      scheduling mechanism chosen, static HTML report
+- [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
+      vs realized with the power note
+- [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
+Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
+treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
+cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`; waiting on Rohan to create the VM).
+- [ ] Cloud VM (issue #12): create free-tier VM, run `deploy/setup-vm.sh`, confirm all venues reachable
+- [x] Test length (2026-10-25): judge costs early; edge stays inconclusive until ~9,000 independent events (scoping doc Q11)
 
 ## Phase 5: Slow crypto book (later)
 - Funding-rate carry and trend on hourly/daily bars; multi-asset portfolio backtests
 - Portfolio construction and risk (vol targeting, correlation, drawdown limits)
 
 ## Parked until justified
-- Cloud recorder (revisit if we want unattended capture of specific events)
+- ~~Cloud recorder~~ un-parked 2026-10-25: needed for unattended forward testing (Phase 4)
 - Depth-ladder fills / passive (maker) order simulation / queue models
 - Rust rewrite of hot paths
 - Equities; options
 
 ## Open questions
-- Verify fee schedules (Kalshi, Polymarket, Coinbase, Kraken); results near break-even depend on them.
+- Fee schedules verified 2026-10-23 (Polymarket per market from Gamma; Kraken primary source; Coinbase from secondary copies, recheck signed in). Still open: Kalshi's fee can also vary by series (`fee_type` / `fee_multiplier` on its API), and the engine does not roll 30-day volume or model maker rebates.
 - How far back do Kalshi's `/historical` and Polymarket's data-api trades actually go? (Kalshi KXBTC15M historical tier confirmed to at least 2026-08-12.)
 - Do we need an API key for Kalshi's websocket (live sessions at higher fidelity)?
 

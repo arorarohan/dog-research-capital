@@ -30,11 +30,24 @@ def build_sources(cfg: dict, only: set[str] | None = None) -> list:
         sources.append(KrakenSource(k["symbols"], k.get("book_depth", 100)))
     if on("polymarket"):
         p = cfg["polymarket"]
-        sources.append(PolymarketSource(p.get("top_n", 50), p.get("refresh_secs", 3600)))
+        sources.append(
+            PolymarketSource(
+                p.get("top_n", 50),
+                p.get("refresh_secs", 3600),
+                deadline_max_days=p.get("deadline_max_days"),
+                min_volume=p.get("min_volume", 0.0),
+                max_markets=p.get("max_markets", 400),
+            )
+        )
     if on("kalshi"):
         k = cfg["kalshi"]
         sources.append(
-            KalshiPoller(k.get("top_n", 50), k.get("poll_secs", 15), k.get("catalog_secs", 3600))
+            KalshiPoller(
+                k.get("top_n", 50),
+                k.get("poll_secs", 15),
+                k.get("catalog_secs", 3600),
+                series=tuple(k.get("series", ())),
+            )
         )
     return sources
 

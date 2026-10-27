@@ -11,24 +11,16 @@ from pathlib import Path
 import polars as pl
 
 from drc.backfill import binance, kalshi, polymarket
-from drc.backfill.catalog import coverage
+from drc.backfill.catalog import conform_markets, coverage
 from drc.backfill.http import Client
-from drc.backfill.schemas import MARKETS_SCHEMA
 
 
 def save_markets(root: Path, df: pl.DataFrame, venue: str, series: str) -> Path:
     path = root / "markets" / f"venue={venue}" / f"series={series}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
-    df = df.cast(MARKETS_SCHEMA)  # all-null columns can arrive typed Null
+    df = conform_markets(df)  # all-null columns can arrive typed Null; other venues lack columns
     if path.exists():  # merge with what we had; newest fetch wins
-        old = pl.read_parquet(path)
-        old = old.with_columns(  # tables written before a column existed
-            [
-                pl.lit(None, MARKETS_SCHEMA[c]).alias(c)
-                for c in MARKETS_SCHEMA
-                if c not in old.columns
-            ]
-        ).select(list(MARKETS_SCHEMA))
+        old = conform_markets(pl.read_parquet(path))  # tables written before a column existed
         df = pl.concat([df, old]).unique(["venue", "market_id"], keep="first")
     df.sort("close_ts").write_parquet(path, compression="zstd")
     return path

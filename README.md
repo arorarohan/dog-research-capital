@@ -1,13 +1,20 @@
 # Dog Research Capital
 
 Quant research and paper-trading stack for crypto and prediction markets.
-See `CLAUDE.md` for project conventions.
+See `CLAUDE.md` for project conventions and `docs/workflow.md` for how we work
+(issues, branches, PRs). New here? Start with `docs/onboarding.md`.
+
+Contributors: Rohan (`arorarohan`).
 
 ## Quickstart
 ```
 uv sync
 uv run pytest
 uv run drc-record --config config/recorder.toml
+# weather-bracket spread session (Kalshi KXHIGH* series, own data dir data/raw_weather):
+uv run drc-record --config config/recorder-weather.toml
+# forward-test session: Polymarket deadline universe + Kalshi weather brackets, own dir data/raw_forward:
+uv run drc-record --config config/recorder-forward.toml
 ```
 
 ## Recorder

@@ -87,6 +87,7 @@ def scheduled_calibration_study(
     )
     n_all = df.height
     df = df.filter(pl.col("stale_s") <= MAX_STALE_S)
+    n_stale = n_all - df.height
     if end_before:
         df = df.filter(pl.col("end_ts") < _to_ns(end_before))
     if end_after:
@@ -95,7 +96,7 @@ def scheduled_calibration_study(
         f"\n=== Calibration, scheduled-end anchor: polymarket/{series} | "
         f"{df['market_id'].n_unique():,} markets, scheduled ends "
         f"{_d(df['end_ts'].min())}..{_d(df['end_ts'].max())}; dropped "
-        f"{n_all - df.height} stale samples (> {MAX_STALE_S // 3600}h since last trade)"
+        f"{n_stale} stale samples (> {MAX_STALE_S // 3600}h since last trade)"
     )
     pooled = []
     for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
@@ -121,6 +122,21 @@ def scheduled_calibration_study(
     print("Pooled gap (freq_yes - price) for contracts priced 5-60c, the band that looked")
     print("mispriced in the flawed study; one row per pre-declared horizon:")
     print(pl.DataFrame(pooled))
+    h1 = df.filter(
+        (pl.col("secs_to_close") == 3 * 86400)
+        & (pl.col("price") >= 0.80)
+        & (pl.col("price") < 0.95)
+    )
+    if h1.height:
+        gap, lo, hi = cluster_bootstrap_mean(
+            (h1["result_value"] - h1["price"]).to_numpy(), h1["event_id"].to_numpy(), 5000
+        )
+        print(
+            f"\nH1 check (3d before scheduled end, priced 80-95c): n={h1.height}, "
+            f"events={h1['event_id'].n_unique()}, avg price={h1['price'].mean():.4f}, "
+            f"freq yes={h1['result_value'].mean():.4f}, gap={gap:+.4f}, "
+            f"95% CI [{lo:+.4f}, {hi:+.4f}]"
+        )
     for h in (7, 3):
         d = df.filter(pl.col("secs_to_close") == h * 86400)
         print(f"\n-- {h}d before scheduled end: calibration by price bin")
@@ -186,12 +202,15 @@ def weather_study(half_spread: float = 0.02) -> None:
     rows, bracket_rows = [], []
     for h in sorted(df["secs_to_close"].unique().to_list(), reverse=True):
         d = df.filter(pl.col("secs_to_close") == h)
+        stale_min = ((d["target_ts"] - d["last_trade_ts"]) / 6e10).to_numpy()
         sc = score_summary(d, "price")
         print(
             f"\n-- {horizon_label(h) if h < 86400 else '24h'}"
             f"{' (primary)' if h in WEATHER_PRIMARY else ' (check only)'} before close: "
             f"n={sc['n']}, city-days={sc['clusters']}, brier={sc['brier']} "
-            f"(constant base rate: {sc['brier_of_base_rate']}), log_loss={sc['log_loss']}"
+            f"(constant base rate: {sc['brier_of_base_rate']}), log_loss={sc['log_loss']}; "
+            f"price age at that moment: median {np.median(stale_min):.0f} min, "
+            f"90th pct {np.percentile(stale_min, 90):.0f} min"
         )
         print(calibration(d, bins=(0.0, 0.05, 0.15, 0.35, 0.65, 0.85, 0.95, 1.0), n_boot=1000))
         for name, lo, hi in WEATHER_GROUPS:
@@ -199,24 +218,27 @@ def weather_study(half_spread: float = 0.02) -> None:
             if g.height < 20:
                 continue
             p, y, c = g["price"].to_numpy(), g["result_value"].to_numpy(), g["event_id"].to_numpy()
-            cost = fee * p * (1 - p) + half_spread
-            for side, profit in (("buy Yes", y - p - cost), ("buy No", p - y - cost)):
-                mean, lo_, hi_ = cluster_bootstrap_mean(profit, c, 2000)
-                rows.append(
-                    {
-                        "secs_to_close": h,
-                        "price_group": name,
-                        "side": side,
-                        "n": g.height,
-                        "city_days": g["event_id"].n_unique(),
-                        "gross_gap": round(
-                            float((y - p).mean() * (1 if side == "buy Yes" else -1)), 4
-                        ),
-                        "net_per_contract": round(mean, 4),
-                        "ci_lo": round(lo_, 4),
-                        "ci_hi": round(hi_, 4),
-                    }
-                )
+            for hs in (half_spread, 0.0):  # 0.0 = best case: the verdict cannot hinge on spread
+                cost = fee * p * (1 - p) + hs
+                sides = (("buy Yes", y - p - cost), ("buy No", p - y - cost))
+                for side, profit in sides:
+                    mean, lo_, hi_ = cluster_bootstrap_mean(profit, c, 2000)
+                    rows.append(
+                        {
+                            "secs_to_close": h,
+                            "price_group": name,
+                            "side": side,
+                            "half_spread": hs,
+                            "n": g.height,
+                            "city_days": g["event_id"].n_unique(),
+                            "gross_gap": round(
+                                float((y - p).mean() * (1 if side == "buy Yes" else -1)), 4
+                            ),
+                            "net_per_contract": round(mean, 4),
+                            "ci_lo": round(lo_, 4),
+                            "ci_hi": round(hi_, 4),
+                        }
+                    )
         # complement check: the brackets of one city-day are exhaustive, so prices sum to ~1
         full = d.group_by("event_id").agg(
             pl.col("price").sum().alias("total"), pl.len().alias("seen")
@@ -241,6 +263,115 @@ def weather_study(half_spread: float = 0.02) -> None:
     print(pl.DataFrame(rows))
     print("\nBracket-sum check (city-days where every bracket has a price; ideal sum = 1):")
     print(pl.DataFrame(bracket_rows) if bracket_rows else "no complete city-days")
+
+
+def scheduled_net_study() -> None:
+    """Does the replicated 5-60c gap survive Polymarket's fees and a spread? (buy Yes, hold)
+
+    Pre-declared before running (2026-10-25): trade = buy Yes at the horizon price on every
+    contract priced 5-60c, hold to resolution. Cost per contract = the market's own stated fee,
+    rate x (p(1-p))^exponent from the markets table (0 where fees are not enabled), plus an
+    ASSUMED half-spread (unmeasured; shown at 0, 0.5c, 1c, 2c). Primary test: holdout set
+    (scheduled end >= DISCOVERY_END), 3-day horizon, 1c half-spread. Survives only if its
+    cluster-bootstrap 95% CI lower bound is above 0; otherwise the strategy is dead. The other
+    horizons, spreads, fee-regime and price-band splits are reported, not selected from.
+    Caveat: Gamma's fee schedule is the market's CURRENT one, so markets whose fees were
+    switched on mid-life are charged for their whole life (conservative).
+    """
+    m = load_markets("polymarket", "general-sched").select(
+        "market_id",
+        "event_id",
+        "result_value",
+        "end_ts",
+        "fees_enabled",
+        "fee_rate",
+        "fee_exponent",
+    )
+    smp = load_samples("polymarket", "general-sched").drop_nulls("price")
+    df = (
+        smp.filter(pl.col("secs_to_close") > 0)
+        .join(m, on="market_id")
+        .drop_nulls("result_value")
+        .with_columns(((pl.col("target_ts") - pl.col("last_trade_ts")) / 1e9).alias("stale_s"))
+        .filter((pl.col("stale_s") <= MAX_STALE_S) & (pl.col("price") >= 0.05))
+        .filter(pl.col("price") < 0.60)
+        .with_columns(
+            (
+                pl.col("fee_rate").fill_null(0.0)
+                * (pl.col("price") * (1 - pl.col("price"))) ** pl.col("fee_exponent").fill_null(1.0)
+            ).alias("fee")
+        )
+    )
+    cut = _to_ns(DISCOVERY_END)
+    spreads = (0.0, 0.005, 0.01, 0.02)
+    rows = []
+    for period, part in (
+        ("discovery", df.filter(pl.col("end_ts") < cut)),
+        ("holdout", df.filter(pl.col("end_ts") >= cut)),
+    ):
+        for h in (7, 3, 1):
+            d = part.filter(pl.col("secs_to_close") == h * 86400)
+            y, p = d["result_value"].to_numpy(), d["price"].to_numpy()
+            fee, c = d["fee"].to_numpy(), d["event_id"].to_numpy()
+            for hs in spreads:
+                net = y - p - fee - hs
+                mean, lo, hi = cluster_bootstrap_mean(net, c, 2000)
+                rows.append(
+                    {
+                        "period": period,
+                        "horizon_d": h,
+                        "half_spread": hs,
+                        "n": d.height,
+                        "events": d["event_id"].n_unique(),
+                        "gross_gap": round(float((y - p).mean()), 4),
+                        "mean_fee": round(float(fee.mean()), 4),
+                        "net": round(mean, 4),
+                        "ci_lo": round(lo, 4),
+                        "ci_hi": round(hi, 4),
+                    }
+                )
+    print("\n=== Buy Yes on 5-60c contracts, hold to resolution, net of per-market fee and spread")
+    print("(PRIMARY: holdout, 3d, half_spread 0.01)")
+    print(pl.DataFrame(rows))
+
+    hold = df.filter(
+        (pl.col("end_ts") >= cut) & (pl.col("secs_to_close").is_in([3 * 86400, 86400]))
+    )
+    splits = []
+    for label, expr in (
+        ("fees enabled", pl.col("fees_enabled")),
+        ("fee-free", ~pl.col("fees_enabled")),
+    ):
+        splits.append((label, expr))
+    for lo_p, hi_p in ((0.05, 0.10), (0.10, 0.20), (0.20, 0.40), (0.40, 0.60)):
+        splits.append(
+            (f"price {lo_p:.2f}-{hi_p:.2f}", (pl.col("price") >= lo_p) & (pl.col("price") < hi_p))
+        )
+    out = []
+    for h in (3, 1):
+        for label, expr in splits:
+            d = hold.filter((pl.col("secs_to_close") == h * 86400) & expr)
+            if d.height < 30:
+                continue
+            y, p = d["result_value"].to_numpy(), d["price"].to_numpy()
+            fee, c = d["fee"].to_numpy(), d["event_id"].to_numpy()
+            mean, lo, hi = cluster_bootstrap_mean(y - p - fee - 0.01, c, 2000)
+            out.append(
+                {
+                    "horizon_d": h,
+                    "subset": label,
+                    "n": d.height,
+                    "events": d["event_id"].n_unique(),
+                    "gross_gap": round(float((y - p).mean()), 4),
+                    "mean_fee": round(float(fee.mean()), 4),
+                    "net_at_1c": round(mean, 4),
+                    "ci_lo": round(lo, 4),
+                    "ci_hi": round(hi, 4),
+                    "breakeven_half_spread": round(float((y - p - fee).mean()), 4),
+                }
+            )
+    print("\nHoldout splits (half_spread 0.01; break-even = gross gap minus fee):")
+    print(pl.DataFrame(out))
 
 
 def digital_dataset() -> tuple[pl.DataFrame, dict]:
@@ -364,6 +495,7 @@ STUDIES = {
     "calibration_poly_general_flawed": lambda: calibration_study("polymarket", "general"),
     "calibration_poly_sched": lambda: scheduled_calibration_study(end_before=DISCOVERY_END),
     "calibration_poly_sched_holdout": lambda: scheduled_calibration_study(end_after=DISCOVERY_END),
+    "poly_net": scheduled_net_study,
     "weather": weather_study,
     "digital": digital_study,
     "cross_venue": cross_venue_study,

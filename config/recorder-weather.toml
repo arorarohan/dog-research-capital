@@ -1,0 +1,16 @@
+# Weather-spread session: measure the real bid/ask spread on Kalshi daily-high temperature
+# brackets (the unmeasured input behind docs/findings/2026-10-23-weather-calibration.md).
+# Run: uv run drc-record --config config/recorder-weather.toml
+# Writes to its own directory so it never mixes with the main recorder's files.
+
+[recorder]
+data_dir = "data/raw_weather"
+flush_secs = 5
+maintenance_secs = 600
+max_total_gb = 5
+
+[kalshi]
+enabled = true
+poll_secs = 60             # ~90 open brackets at 5 concurrent requests: well under Kalshi's limit
+catalog_secs = 3600
+series = ["KXHIGHNY", "KXHIGHCHI", "KXHIGHMIA", "KXHIGHAUS", "KXHIGHLAX", "KXHIGHDEN", "KXHIGHPHIL"]

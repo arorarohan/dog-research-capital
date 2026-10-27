@@ -3,7 +3,8 @@
 Unlike live recordings these have no receive time or epochs: history is what the venue says
 happened, timestamped in exchange time (UTC nanoseconds).
 
-- markets:        one row per tradable contract with how it resolved (the label for studies)
+- markets:        one row per tradable contract with how it resolved (the label for studies);
+                  Polymarket rows also carry the market's stated fee data
 - price_samples:  last traded price at chosen moments of a market's life (full tick history of
                   busy markets is far too large; we sample)
 - klines_1m:      Binance spot 1-minute candles
@@ -31,6 +32,13 @@ MARKETS_SCHEMA = {
     "volume": pl.Float64,
     "rules": pl.Utf8,
     "tier": pl.Utf8,  # kalshi: live | historical
+    # Polymarket fee data as Gamma states it at fetch time (null = not captured / not stated).
+    # The schedule is the market's CURRENT one, not necessarily what applied over its whole life.
+    "category": pl.Utf8,  # Gamma `category`; null on every market seen so far
+    "fee_type": pl.Utf8,  # e.g. zero_fees, sports_fees_v2, crypto_fees_v2
+    "fees_enabled": pl.Boolean,
+    "fee_rate": pl.Float64,  # taker rate in fee = shares x rate x (p(1-p))^exponent
+    "fee_exponent": pl.Float64,
 }
 
 PRICE_SAMPLES_SCHEMA = {

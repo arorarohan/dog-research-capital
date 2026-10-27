@@ -20,6 +20,38 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
 
+## Fees
+- **Polymarket fees are per market, and the docs table is only a summary.** Gamma returns
+  `feeType` and `feeSchedule` {rate, exponent, takerOnly, rebateRate} on every market; trust
+  those over the category table. Seen 2026-10-23: `zero_fees` 0, `sports_fees_v2` 3% (docs
+  table says sports 5%), `sports_fees_v3` 5%, `sports_fees_nfl_cfb_oct26` 3%, `crypto_fees_v2`
+  7%, `finance_prices_fees` and `politics_fees` 4%, `economics_fees` 5%, `general_fees` 5%.
+  Gamma's `category` field is null on every market, so the category table is a fallback only.
+- **Gamma's fee schedule is the market's current one, not its history.** Fees were switched on
+  for many market types during 2026; old closed markets read `feesEnabled: false`. A market
+  whose fees were enabled mid-life reads as fee-bearing for its whole life, which overstates
+  cost for early fills. Be conservative, and say so, when a study spans the switch-on.
+- **Old markets-table rows have null fee columns** (written before capture). Null means
+  unknown, not zero: `fee_source` falls to the category/default rate. Re-run
+  `drc-backfill polymarket-general` (newest fetch wins) to fill them.
+- **Neither Coinbase nor Kraken exposes fees per pair in public data** (Kraken `AssetPairs`
+  `fees` arrays are empty), and Coinbase's fee pages block scripts. Their schedules are
+  hand-copied tier tables in `fees.py`; recheck them when a "fees lowered" banner shows up
+  (per secondary reports, Coinbase restructured its tiers on 2026-09-16 and Kraken on 2026-07-09).
+
+## Recorder volume
+- **Polymarket deadline mode records ~600 `price_change` messages per second** for ~700 tokens
+  (about 22 MB per minute, ~1.3 GB per hour uncompressed while the hour is open; hourly zstd
+  compression cuts it roughly tenfold). Fine for a one-hour session; do not leave it running for
+  days without the `max_total_gb` valve. Stop with SIGINT so the open hour flushes.
+
+## Books on near-resolved markets
+- **Locked books are not replay bugs.** Polymarket tokens of near-resolved markets sit at 99.8c /
+  0.2c with bid == ask exactly (seen 2026-10-22: 4 tokens, 1,786 of 558,598 bars; none strictly
+  crossed). Spread studies must require ask > bid. `drc-bars` counts these as crossed states.
+- **`data/norm` is stale until re-run.** The normalized bars had been built mid-recording and
+  covered 20 of the 100 recorded minutes; re-run `drc-normalize` and `drc-bars` before analysis.
+
 ## Historical APIs
 - **Kalshi 429s at ~4 requests/sec sustained.** `backfill/http.py` spaces requests and
   retries with backoff; keep `min_interval` >= 0.25s.
@@ -61,6 +93,10 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   digital dataset now drops rows whose spot candle is more than 150 s old.
 - **Many CIs => some false positives.** Pre-declare tests, report every combination, and treat
   post-hoc pooling choices as hypotheses.
+
+- **Thin markets need a long sampling lookback.** Kalshi weather brackets trade a few times a day;
+  a 120 s lookback found a trade for only a third of the moments and biased samples toward active
+  times. Use hours and record each price's age (`last_trade_ts`).
 
 ## Tooling
 - `pkill -f <pattern>` run from the agent's own shell matches that shell (its command line

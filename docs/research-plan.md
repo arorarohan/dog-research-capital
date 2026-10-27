@@ -10,7 +10,10 @@ single idea works is low, and we expect most to fail.
 1. **Net, not gross.** A study is worth running only if a plausible gross edge clears the cost
    hurdle by a margin we can measure. Hurdles (held to resolution, so one-way): Kalshi fee is
    7% x p(1-p) (1.75c at 50c, 0.6c at 10c, ~0 near 0/100) plus half the spread; Polymarket fee
-   is 0 on most markets (unverified placeholder) plus half the spread.
+   is rate x p(1-p), with the rate stated per market in Gamma `feeSchedule` (verified
+   2026-10-23: 0 on `zero_fees` markets, 3-5% sports, 4% politics/finance, 5% economics/
+   general, 7% crypto; peak 1.75c at 7%, 1.25c at 5%, 0.75c at 3% per share at 50c) plus half
+   the spread. Takers only; makers pay 0.
 2. **Orphan edges.** Edges persist where they are too small or too labor-intensive for
    institutions to bother, not merely where they are obscure. We have no capacity problem, so
    thin, per-market, hand-built pipelines are our natural habitat. Contested, scalable edges
@@ -63,6 +66,9 @@ Dropped: sports vs sharp sportsbook odds (competitive; historical odds are paid 
 - Kill: no out-of-sample lift over price alone. Respect rate limits; public data only.
 
 ### 3. Weather brackets on Kalshi
+- **Update 2026-10-23:** price-only check done; kill criterion met at 2c half-spread, forecast pipeline on hold;
+  longshot-selling pattern kept as pre-declared forward test H2
+  (`docs/findings/2026-10-23-weather-calibration.md`).
 - Idea: daily-high-temperature markets (122 daily weather series; one city shows ~400 settled
   markets in ~2 months, median volume ~2k contracts, so thin and under-covered). Build a
   calibrated probability from archived model forecasts (Open-Meteo historical-forecast API,

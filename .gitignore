@@ -12,3 +12,8 @@ data/
 *.jsonl
 *.jsonl.zst
 .env
+.claude/worktrees/
+
+# personal, per-developer (learning notes, local agent instructions)
+.local/
+CLAUDE.local.md
