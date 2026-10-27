@@ -12,6 +12,13 @@ Status key: done / now / next / later / parked. Dates are absolute.
 - Free data only. Python first; Rust only when profiling demands it.
 - Every result carries its sample size and cost assumptions. Paper PnL flatters; be skeptical.
 
+## Team decisions (2026-10-27)
+- Chris joins. GitHub issues are the task tracker; all work goes issue -> branch -> PR, and
+  Rohan reviews and merges (merge commits, branches kept). See `docs/workflow.md`.
+- Research approvals need both Rohan and Chris; killing your own hypothesis needs neither.
+- The learning library is personal and local (`CLAUDE.local.md`, `.local/`), not in the repo.
+- Shared market data will come from the planned recorder VM; until then each machine backfills.
+
 ## Phase 0: Foundation (done)
 - Recorder (Coinbase, Kraken, Polymarket, Kalshi) with gap-aware raw capture
 - Raw -> Parquet normalization, book replay, 1s bars

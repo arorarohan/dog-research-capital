@@ -1,8 +1,8 @@
 # Dog Research Capital
 
-Two-person (user + Claude) quant research shop. Goal: research signals, build our own
-trading platform, paper-trade on real exchange data, and track made-up funds. Nothing here
-ever trades real money.
+Quant research shop run by Rohan and Chris, each working with their own Claude Code agent.
+Goal: research signals, build our own trading platform, paper-trade on real exchange data, and
+track made-up funds. Nothing here ever trades real money.
 
 ## Scope and priorities
 - Asset classes: crypto first (infra proving ground), prediction markets (Polymarket, Kalshi)
@@ -12,26 +12,38 @@ ever trades real money.
 - Everything runs on a laptop (WSL2). The recorder must also run unchanged on a free cloud VM.
 
 ## Plan
-The living roadmap is `docs/roadmap.md`. Check it before choosing what to build next, and
-update it (tick items, add dates, record decisions) when a milestone lands or priorities change.
+The living roadmap is `docs/roadmap.md` (big picture); GitHub issues are the units of work.
+Check both before choosing what to build next. Update the roadmap (tick items, add dates, record
+decisions) in the PR that lands a milestone or changes priorities.
+
+## Team workflow (read `docs/workflow.md` before your first git command)
+- **GitHub issues are the project tracker.** Every task is an issue assigned to Rohan
+  (`arorarohan`) or Chris (`BigManChris`). Work on issues assigned to your user. Agents may open
+  issues without asking but must tell their user, with the link, in the same reply.
+- **All work happens on a branch, merged by PR.** Before starting: `git switch main &&
+  git pull --ff-only && git switch -c <type>/<issue#>-<slug>`. Never commit on or push to `main`;
+  a hook (`.claude/hooks/guard_main.py`) blocks it. PR bodies start with `Closes #N`.
+- **Only Rohan merges** (merge commits, no squash, branches kept). Agents never merge unless
+  Rohan says so in that session.
+- **Keep up with main** by `git merge origin/main` into your branch, not rebase. No force-push
+  except `--force-with-lease` on your own branch; no destructive git commands without asking.
+- **Research decisions:** approving a result (declaring an edge, promoting to forward test or
+  paper fund) needs both Rohan's and Chris's sign-off. Killing your own hypothesis needs none;
+  killing the other person's needs their agreement.
+- **Personal stuff stays local:** each person's preferences and learning notes go in
+  gitignored `CLAUDE.local.md` / `.local/`, never in `CLAUDE.md`.
 
 ## Working rules
-- **Commit and push incrementally, as a developer would.** Small, focused commits with
+- **Commit and push incrementally, on your branch.** Small, focused commits with
   conventional-style messages (`feat(recorder): ...`, `fix: ...`, `test: ...`, `docs: ...`,
-  `chore: ...`). Push to `origin main` after each logical unit of work, not in one big dump at
-  the end. Run tests and ruff before committing, chained with `&&` so a failure blocks the commit.
+  `chore: ...`) ending with `Refs #N`. Push the branch after each logical unit of work. Run
+  tests and ruff before committing, chained with `&&` so a failure blocks the commit.
 - Never commit market data, secrets, or `.env` files (`data/` is gitignored).
 - Be skeptical of our own results: paper PnL flatters. Fill models must be conservative, and
   backtests must account for multiple testing. Never silently interpolate across recording gaps.
 - Raw capture first, normalize later: the recorder stores exchange messages verbatim with a
   local receive timestamp so parsers can be fixed and re-run on old data.
-
-## Teaching Rohan
-Rohan knows probability theory and full-stack dev but is new to markets. Explain market jargon
-when first encountered. Before explaining a term, check `docs/learning/INDEX.md`; if it is
-`taught`, just use it. When you teach something new, add or update its note under
-`docs/learning/concepts/` and its row in the index in the same commit. Keep `profile.md`
-current. See `docs/learning/README.md`.
+- Explain market jargon when first using it unless the user's `CLAUDE.local.md` says they know it.
 
 ## Gotchas
 Non-obvious traps (clocks, trade-side semantics, depth-limited books) are in
@@ -44,7 +56,8 @@ add to it whenever we learn something the hard way.
 - `src/drc/market/` order book, replay to top-of-book, 1s bars
 - `src/drc/backtest/` ledger, engine, fee models, baseline strategies (see `docs/backtester.md`)
 - `src/drc/validate/` ground-truth checks on our data and reconstruction
-- `docs/learning/` Rohan's learning library (profile, concept index, notes)
+- `docs/workflow.md` team git/PR/issue rules; `docs/onboarding.md` new-contributor setup
+- `.claude/` shared Claude Code settings and hooks (`settings.json`, `hooks/guard_main.py`)
 - `config/` TOML configs (what to record, retention)
 - `tests/` pytest (asyncio_mode=auto)
 - `data/` local recordings (gitignored)
