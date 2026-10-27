@@ -51,4 +51,4 @@ entirely in the early-closing markets, which pointed at the anchor.
 3. Before believing a large effect, split on the variables most likely to be tied to outcome.
 4. Agreement across horizons or intervals is only independent evidence if the anchor is clean.
 
-Related: `docs/gotchas.md` (Research pitfalls), `docs/learning/concepts/lookahead-bias.md`.
+Related: `docs/gotchas.md` (Research pitfalls).

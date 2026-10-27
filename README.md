@@ -1,7 +1,10 @@
 # Dog Research Capital
 
 Quant research and paper-trading stack for crypto and prediction markets.
-See `CLAUDE.md` for project conventions.
+See `CLAUDE.md` for project conventions and `docs/workflow.md` for how we work
+(issues, branches, PRs). New here? Start with `docs/onboarding.md`.
+
+Contributors: Rohan (`arorarohan`).
 
 ## Quickstart
 ```
