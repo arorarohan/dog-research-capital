@@ -82,17 +82,31 @@ Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numb
 - Live sessions: forward paper-trading of surviving strategies with full trade logging;
   compare live paper results to backtest predictions (the gap is itself a result)
 
-## Phase 4: Platform and UI (later)
-- Dashboard: fund NAVs, positions, blotter, signal monitors, research runs
-- Multiple made-up funds with separate mandates and capital; run registry
-- One-command "session" workflow: start recorder + paper trader, summarize, shut down
+## Phase 4: Forward-test platform and UI (scoped 2026-10-25)
+Direction decided with Rohan 2026-10-25 (`docs/phase4-scoping.md` section 0): decisions first,
+one automatic paper fund per hypothesis, judged as if it handled real money, simulation-only by
+construction, web app later. Design: `docs/design/forward-test-platform.md`. A thin slice runs
+**ahead of Phase 3** because decision-time snapshots cannot be recreated.
+- [x] Slice 0 (2026-10-25, `src/drc/forward/`, 46 tests): append-only hash-chained event log
+      (SQLite), depth-aware `SimBroker`, pre-trade risk checks, reconciliation, fund state and
+      treasury/firm-total projections. Not yet wired to any venue or strategy (Slice 1).
+- [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
+      scheduling mechanism chosen, static HTML report
+- [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
+      vs realized with the power note
+- [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
+Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
+treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
+cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`; waiting on Rohan to create the VM).
+- [ ] Cloud VM (issue #12): create free-tier VM, run `deploy/setup-vm.sh`, confirm all venues reachable
+- [x] Test length (2026-10-25): judge costs early; edge stays inconclusive until ~9,000 independent events (scoping doc Q11)
 
 ## Phase 5: Slow crypto book (later)
 - Funding-rate carry and trend on hourly/daily bars; multi-asset portfolio backtests
 - Portfolio construction and risk (vol targeting, correlation, drawdown limits)
 
 ## Parked until justified
-- Cloud recorder (revisit if we want unattended capture of specific events)
+- ~~Cloud recorder~~ un-parked 2026-10-25: needed for unattended forward testing (Phase 4)
 - Depth-ladder fills / passive (maker) order simulation / queue models
 - Rust rewrite of hot paths
 - Equities; options
