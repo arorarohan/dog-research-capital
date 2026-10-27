@@ -178,3 +178,4 @@ So: with 1c-tick quoting the edge has room (break-even 2.2c at 3d), but the spre
 universe is still unmeasured. The fix is live capture of an ex-ante universe: markets selected at
 the time by scheduled end within 1-7 days and volume to date (not by 24h volume), books recorded
 through to resolution. That also removes the hindsight volume filter.
+Built 2026-10-25: Polymarket deadline mode in the recorder (`config/recorder-forward.toml`).
