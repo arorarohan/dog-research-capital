@@ -1,5 +1,6 @@
 import orjson
 
+from drc.recorder import writer as writer_mod
 from drc.recorder.writer import NS_PER_HOUR, RawWriter, hour_path, read_lines
 
 T0 = 1_760_000_000 * 1_000_000_000  # fixed instant, UTC hour boundary irrelevant
@@ -74,3 +75,36 @@ def test_receive_timestamps_stay_strictly_increasing_when_clock_steps_back(tmp_p
     stamps = [w.now_ns() for _ in range(6)]
     assert stamps == sorted(set(stamps)) and len(stamps) == 6
     assert stamps[:4] == [1_000, 1_001, 5_000, 5_001]
+
+
+def test_compress_closed_idle_guard_leaves_recently_written_files(tmp_path):
+    import os
+    import time as _time
+
+    old = hour_path(tmp_path, "kraken", "book", T0)  # an hour long gone
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b'{"t":1,"m":{"a":1}}\n')
+    fresh = hour_path(tmp_path, "kraken", "trade", T0)
+    fresh.parent.mkdir(parents=True)
+    fresh.write_bytes(b'{"t":2,"m":{"a":2}}\n')
+    os.utime(old, (_time.time() - 3600, _time.time() - 3600))  # untouched for an hour
+    w = RawWriter(tmp_path)
+    assert w.compress_closed(min_idle_secs=900) == 1  # only the idle one
+    assert not old.exists() and old.with_name(old.name + ".zst").exists()
+    assert fresh.exists()  # written just now: someone may still be appending
+    assert w.compress_closed() == 1  # without the guard it goes too
+
+
+def test_compress_closed_keeps_the_original_if_the_compressed_copy_does_not_match(
+    tmp_path, monkeypatch
+):
+    path = hour_path(tmp_path, "kraken", "book", T0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'{"t":1,"m":{"a":1}}\n')
+    real = writer_mod._sha256
+    monkeypatch.setattr(
+        writer_mod, "_sha256", lambda p, compressed: "bad" if compressed else real(p, compressed)
+    )
+    assert RawWriter(tmp_path).compress_closed() == 0
+    assert path.exists()  # the only copy is untouched
+    assert not list(path.parent.glob("*.zst*"))  # and no stray compressed file is left behind
