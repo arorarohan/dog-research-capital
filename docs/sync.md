@@ -54,12 +54,14 @@ Pulls land in a separate directory per host and never merge into your own `data/
 Done: `drc-sync` built and tested (198 tests); rclone v1.75.2 installed on Rohan's laptop;
 remote `gdrive` configured (full `drive` scope, using rclone's *shared* client ID); round trip and
 `--immutable` refusal tested on the real Drive; stale plain `.jsonl` hours are compressed (with
-hash verification) before upload; initial laptop upload (host `rohan-laptop`) started.
-Drive is 400 GiB (not 500 GB), ~382 GiB free.
+hash verification) before upload; **initial laptop upload (host `rohan-laptop`) finished and
+verified 2026-10-28**: raw 70, norm 20, hist 1,675, runs 4 files, all matching by size and hash,
+zero missing or differing (`drc-sync status`: 0 local files not archived). The job spanned an
+overnight laptop suspend, which did not affect the result.
+Drive is 400 GiB (not 500 GB), ~382 GiB free before this upload.
 
-**If the initial upload did not finish**, it is safe to resume: `DRC_HOST=rohan-laptop uv run
-drc-sync push` (copy is idempotent), then `drc-sync verify` and `drc-sync status`; every group
-should show `missing=0 differ=0`.
+Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempotent, and
+`drc-sync verify` should show `missing=0 differ=0` for every group.
 
 ### Outstanding (in order)
 1. **Own Google OAuth client** (rclone's shared one is retired during 2026, so this is urgent).
@@ -67,7 +69,7 @@ should show `missing=0 differ=0`.
    External then publish *In production* (else tokens die after 7 days), Desktop-app client ID.
    Then set `client_id`/`client_secret` on the `gdrive` remote and re-authorize on the laptop;
    uploaded files stay as they are.
-2. Confirm the initial upload with `verify` (zero missing/differ).
+2. ~~Confirm the initial upload with `verify`~~ done 2026-10-28.
 3. Parquet written at zstd level 19 in `normalize` (saves 10-30%).
 4. VM: install rclone, copy the remote config (own client), systemd timer that normalizes
    closed hours, pushes, verifies, and runs `prune-local --apply`; check that `drc-normalize`
