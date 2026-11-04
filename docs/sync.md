@@ -96,9 +96,20 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
    secret lives only in `~/.config/rclone/client_secret.txt` (mode 600) and the Cloud console.
 2. ~~Confirm the initial upload with `verify`~~ done 2026-10-28.
 3. ~~Parquet at zstd level 19~~ done 2026-11-04 (Polymarket Parquet -32%).
-4. VM: install rclone, copy the remote config (own client), systemd timer that normalizes
-   closed hours, pushes, verifies, and runs `prune-local --apply`; check that `drc-normalize`
-   skips the open hour and how long an hour takes on the ARM cores.
+4. **VM sync (in progress 2026-11-04).** Done: rclone v1.75.2 (arm64) installed on the VM, the
+   `gdrive` remote copied over (`~/.config/rclone/rclone.conf`, mode 600; expires with the weekly
+   login, so after each `deploy/reauth-drive.sh` copy `rclone.conf` and `drc-authorized-at` to
+   the VM with `scp`), the VM's repo checkout is on `infra/15-drive-sync`, and the **initial
+   upload of the VM's existing raw (`gdrive:drc/vm-london`, 1,647 files, ~27 GB) was started
+   2026-11-04 15:18 UTC** (log `~/sync-initial.log` on the VM; it prints `push exit=0`, then
+   `verify`, then `=== done`). Written but NOT yet enabled: `deploy/sync-cycle.sh` +
+   `drc-sync.service/.timer` (hourly: normalize closed hours, push, verify, prune-local).
+   To enable once the initial upload verifies: `sudo systemctl enable --now drc-sync.timer`.
+   Weekly token expiry applies (see "OAuth app status").
+   **Why this was urgent:** the VM's local cap (30 GB, now 50 GB) was deleting raw days nobody
+   had backed up: `polymarket/price_change` is ~4.5 GB/day compressed, and days from Oct 27-29
+   were already gone before any upload. See `docs/gotchas.md`.
+   Open: the first real hourly cycle; how long `drc-normalize` takes per hour on the ARM cores.
 5. Expiry: first real `expire-remote` dry run once data older than 15 days exists.
 6. Restore test: pull into a clean directory, run `drc-normalize`, compare row counts.
 7. Docs for Chris (`docs/onboarding.md`): install rclone, authorize, `drc-sync pull`.
