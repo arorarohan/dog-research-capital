@@ -46,9 +46,30 @@ Pulls land in a separate directory per host and never merge into your own `data/
    scope=drive token=...`). The token lives in `~/.config/rclone/rclone.conf` (mode 600) and
    never in the repo.
 3. **Own OAuth client ID.** rclone's shared client ID is being retired during 2026. Create our own
-   (Google Cloud console: Drive API, OAuth consent screen set to *In production*, Desktop-app
-   client) and set `client_id` / `client_secret` on the remote. Tokens are tied to the client, so
-   re-authorize afterwards.
+   (Google Cloud console: Drive API, OAuth consent screen, Desktop-app client) and set
+   `client_id` / `client_secret` on the remote. Tokens are tied to the client, so re-authorize
+   afterwards (`deploy/reauth-drive.sh`).
+
+## OAuth app status: Testing (decided by Rohan, 2026-11-04)
+Publishing the app to "In production" requires a homepage and a privacy policy on a domain we
+have proven we own (Search Console + authorized domain). Rohan chose to stay in **Testing** for
+now. Consequences:
+- Google expires **refresh tokens 7 days** after each authorization, so Drive sync stops weekly
+  until someone re-authorizes. `drc-sync` exits with code 3 and says `AUTH EXPIRED`, and warns
+  from day 5 (it reads the date stamp `~/.config/rclone/drc-authorized-at`).
+- Only listed **test users** can authorize (Rohan's Google account; add Chris's when he needs it).
+- The cloud VM therefore cannot sync unattended for more than a week. Until we leave Testing, the
+  laptop re-authorizes weekly and the token is copied to the VM, or the VM's sync waits.
+- To leave Testing later: put a one-paragraph homepage and privacy page on Rohan's domain
+  (GitHub Pages works), verify the domain in Search Console, add it under *Authorized domains* on
+  the Branding page, and click *Publish app*. No re-creation of the client is needed.
+
+### Re-authorizing (about weekly while in Testing)
+```
+bash deploy/reauth-drive.sh <client_id>   # prints a link; open it, Advanced > Go to drc-rclone > Allow
+```
+The client secret is read from `~/.config/rclone/client_secret.txt` (mode 600). Never paste it into
+chat or commit it. Afterwards `drc-sync verify` confirms access.
 
 ## Status (2026-10-27 end of day)
 Done: `drc-sync` built and tested (198 tests); rclone v1.75.2 installed on Rohan's laptop;
@@ -66,9 +87,9 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
 ### Outstanding (in order)
 1. **Own Google OAuth client** (rclone's shared one is retired during 2026, so this is urgent).
    Rohan does the console clicks: new Cloud project, enable Drive API, OAuth consent screen
-   External then publish *In production* (else tokens die after 7 days), Desktop-app client ID.
-   Then set `client_id`/`client_secret` on the `gdrive` remote and re-authorize on the laptop;
-   uploaded files stay as they are.
+   External, add himself as a test user, Desktop-app client ID. Staying in Testing for now (see
+   above), so tokens last 7 days. Then run `deploy/reauth-drive.sh`; uploaded files stay as they
+   are.
 2. ~~Confirm the initial upload with `verify`~~ done 2026-10-28.
 3. Parquet written at zstd level 19 in `normalize` (saves 10-30%).
 4. VM: install rclone, copy the remote config (own client), systemd timer that normalizes

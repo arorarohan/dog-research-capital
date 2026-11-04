@@ -23,9 +23,26 @@ from pathlib import Path
 
 from drc.recorder.writer import RawWriter, stale_plain_files
 from drc.sync import plan
-from drc.sync.rclone import Rclone, RcloneError
+from drc.sync.rclone import AuthError, Rclone, RcloneError
 
 WHATS = ("raw", "norm", "hist", "runs")
+
+
+AUTH_WARN_DAYS = 5  # Testing-mode refresh tokens die after 7 days
+
+
+def auth_age_days(stamp: Path | None = None, now: float | None = None) -> float | None:
+    """Days since the Drive remote was last authorized (the stamp file is written by the
+    re-authorization procedure), or None if unknown."""
+    stamp = (
+        stamp
+        or Path(os.environ.get("DRC_AUTH_STAMP", "~/.config/rclone/drc-authorized-at")).expanduser()
+    )
+    try:
+        authorized = float(stamp.read_text().strip())
+    except (OSError, ValueError):
+        return None
+    return ((time.time() if now is None else now) - authorized) / 86400
 
 
 def load_config(path: Path) -> dict:
@@ -115,6 +132,8 @@ class Archive:
             try:
                 self.rc.run("copy", *args)
                 print(f"push {kind:6s} {src.name:12s} {len(rels):6d} files -> {dst}")
+            except AuthError:
+                raise
             except RcloneError as e:
                 failures += 1
                 print(f"FAILED push {kind} {src.name}: {e}", file=sys.stderr)
@@ -222,6 +241,13 @@ def main(argv: list[str] | None = None) -> int:
     bad = set(what) - set(WHATS)
     if bad:
         ap.error(f"unknown --what {sorted(bad)}; choose from {WHATS}")
+    age = auth_age_days()
+    if age is not None and age >= AUTH_WARN_DAYS:
+        print(
+            f"WARNING: Drive login is {age:.1f} days old; Testing-mode tokens expire at 7 days. "
+            "Re-authorize soon (docs/sync.md).",
+            file=sys.stderr,
+        )
     arc = Archive(
         Rclone(),
         remote,
@@ -273,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
             if not args.apply:
                 print("dry run: pass --apply to delete")
             return 0
+    except AuthError as e:
+        print(f"AUTH EXPIRED: {e}", file=sys.stderr)
+        return 3
     except RcloneError as e:
         print(e, file=sys.stderr)
         return 2

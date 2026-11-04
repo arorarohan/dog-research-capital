@@ -270,3 +270,49 @@ def test_sample_is_one_hour_on_one_weekday():
     ]
     assert [(f.date, f.hour) for f in plan.sample_files(files, 12, 0)] == [("2026-10-26", 12)]
     assert len(plan.sample_files(files, 12)) == 2  # no weekday filter: every day
+
+
+class StderrRunner:
+    def __init__(self, stderr):
+        self.stderr = stderr
+
+    def __call__(self, cmd, capture_output, text):
+        return subprocess.CompletedProcess(cmd, 1, "", self.stderr)
+
+
+def test_expired_token_is_reported_as_an_auth_error():
+    from drc.sync.rclone import AuthError
+
+    err = (
+        'Failed to create file system: oauth2: "invalid_grant" "Token has been expired or revoked."'
+    )
+    with pytest.raises(AuthError, match="Re-authorize"):
+        Rclone("rclone", StderrRunner(err)).run("about", "gdrive:")
+    with pytest.raises(RcloneError) as other:  # an ordinary failure stays an ordinary failure
+        Rclone("rclone", StderrRunner("some other failure")).run("about", "gdrive:")
+    assert not isinstance(other.value, AuthError)
+
+
+def test_push_stops_on_auth_error_instead_of_counting_it_as_a_group_failure(tmp_path, capsys):
+    touch(tmp_path / "data/raw/kraken/trade/2026-10-27/21.jsonl.zst")
+
+    class Dead:
+        def __call__(self, cmd, capture_output, text):
+            return subprocess.CompletedProcess(cmd, 1, "", 'oauth2: "invalid_grant"')
+
+    arc = archive(tmp_path, Dead())
+    from drc.sync.rclone import AuthError
+
+    with pytest.raises(AuthError):
+        arc.push(("raw",), dry_run=False)
+
+
+def test_auth_age_reads_the_stamp_file(tmp_path):
+    from drc.sync.cli import auth_age_days
+
+    stamp = tmp_path / "stamp"
+    assert auth_age_days(stamp, NOW) is None  # unknown is not an error
+    stamp.write_text(str(NOW - 6 * 86400))
+    assert auth_age_days(stamp, NOW) == pytest.approx(6.0)
+    stamp.write_text("not a number")
+    assert auth_age_days(stamp, NOW) is None
