@@ -95,3 +95,18 @@ def test_parquet_is_written_at_the_configured_zstd_level(tmp_path, monkeypatch):
     assert pipeline.PARQUET_ZSTD_LEVEL == 19
     # the tables still read back
     assert all(pl.read_parquet(f).height > 0 for f in norm.rglob("hour=*.parquet"))
+
+
+def test_closed_only_skips_the_hour_still_being_recorded(tmp_path):
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    _write_raw(raw)  # data in the hour starting at T0
+    t0 = T0 / 1e9
+    inside = t0 + 1800  # half way through that hour: the recorder may still be writing
+    assert normalize_all(raw, norm, closed_only=True, now=inside) == {}
+    assert not list(norm.rglob("*.parquet"))
+    after = t0 + 3600 + 1  # the hour has ended
+    assert len(normalize_all(raw, norm, closed_only=True, now=after)) == 1
+    assert list(norm.rglob("*.parquet"))
+    # without the flag the open hour is still processed (existing behaviour)
+    norm2 = tmp_path / "norm2"
+    assert len(normalize_all(raw, norm2, now=inside)) == 1

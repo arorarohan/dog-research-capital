@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly archive cycle for Dog Research Capital
+
+[Timer]
+# ten minutes past the hour: the recorder has compressed the hour that just closed
+OnCalendar=*:10:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

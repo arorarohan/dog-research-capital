@@ -12,7 +12,9 @@ never needs to be recomputed when new data arrives.
 from __future__ import annotations
 
 import bisect
+import calendar
 import logging
+import time
 from pathlib import Path
 
 import polars as pl
@@ -138,12 +140,28 @@ def normalize_hour(
     return counts
 
 
+def _is_open_hour(date: str, hour: int, now: float) -> bool:
+    """True for the UTC hour containing `now` (or later): the recorder may still be writing it."""
+    start = calendar.timegm(time.strptime(date, "%Y-%m-%d")) + hour * 3600
+    return start + 3600 > now
+
+
 def normalize_all(
-    raw_root: Path, norm_root: Path, venues: list[str] | None = None, force: bool = False
+    raw_root: Path,
+    norm_root: Path,
+    venues: list[str] | None = None,
+    force: bool = False,
+    closed_only: bool = False,
+    now: float | None = None,
 ) -> dict[tuple[str, str, int], dict[str, int]]:
+    """Normalize every hour found. With `closed_only`, skip the hour still being recorded so no
+    partial Parquet is written (and later uploaded) for it."""
+    now = time.time() if now is None else now
     done = {}
     for venue in venues or sorted({v for v, _ in PARSERS}):
         for date, hour in list_hours(raw_root, venue):
+            if closed_only and _is_open_hour(date, hour, now):
+                continue
             counts = normalize_hour(raw_root, norm_root, venue, date, hour, force)
             if counts:
                 done[(venue, date, hour)] = counts
