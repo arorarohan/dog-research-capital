@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections import OrderedDict
 
@@ -31,6 +32,13 @@ MAX_TRADE_PAGES = 20
 SEEN_TRADES_CAP = 50_000
 
 
+def _retry_after(resp: httpx.Response) -> float | None:
+    try:
+        return max(0.0, float(resp.headers["retry-after"]))
+    except (KeyError, ValueError):
+        return None
+
+
 class KalshiPoller:
     venue = "kalshi"
 
@@ -42,7 +50,15 @@ class KalshiPoller:
         concurrency: int = 5,
         exclude_trade_prefixes: tuple[str, ...] = ("KXMVE",),
         series: tuple[str, ...] = (),
+        max_rps: float = 5.0,
+        max_retries: int = 4,
     ) -> None:
+        self.max_retries = max_retries
+        self._interval = 1.0 / max_rps
+        self._next_slot = 0.0  # monotonic time of the next request we may start
+        self._now = time.monotonic  # injectable for tests
+        self._sleep = asyncio.sleep
+        self.n_throttled = 0  # 429s seen (and retried) since the last report
         self.exclude_trade_prefixes = exclude_trade_prefixes
         self.series = tuple(series)
         self.top_n = top_n
@@ -53,6 +69,33 @@ class KalshiPoller:
         self._seen_trades: OrderedDict[str, None] = OrderedDict()
         self._last_trade_ts = int(time.time())
 
+    async def _pace(self) -> None:
+        """Start requests at most `max_rps` per second across all tasks (polls and catalog scan
+        share one budget). No await between reading and writing `_next_slot`, so it is atomic."""
+        now = self._now()
+        slot = max(now, self._next_slot)
+        self._next_slot = slot + self._interval
+        if slot > now:
+            await self._sleep(slot - now)
+
+    async def _get(self, client: httpx.AsyncClient, url: str, params: dict | None = None):
+        """GET with pacing. On 429, honor Retry-After (else back off exponentially with jitter)
+        and pause every task, then retry; after `max_retries` the 429 response is returned and
+        the caller's raise_for_status reports it. Other statuses are returned untouched."""
+        for attempt in range(self.max_retries + 1):
+            await self._pace()
+            resp = await client.get(url, params=params)
+            if resp.status_code != 429 or attempt == self.max_retries:
+                return resp
+            self.n_throttled += 1
+            wait = _retry_after(resp)
+            if wait is None:
+                wait = min(30.0, 2.0**attempt)
+            wait += random.uniform(0, 0.25 * wait)
+            self._next_slot = max(self._next_slot, self._now() + wait)  # everyone waits
+            await self._sleep(wait)
+        raise AssertionError("unreachable")
+
     async def _open_markets(self, client: httpx.AsyncClient, **filters: str) -> list[dict]:
         markets: list[dict] = []
         cursor = None
@@ -60,7 +103,7 @@ class KalshiPoller:
             params = {"limit": 1000, "status": "open", **filters}
             if cursor:
                 params["cursor"] = cursor
-            resp = await client.get(f"{BASE}/markets", params=params)
+            resp = await self._get(client, f"{BASE}/markets", params)
             resp.raise_for_status()
             body = resp.json()
             markets += body["markets"]
@@ -88,7 +131,7 @@ class KalshiPoller:
 
     async def poll_book(self, client: httpx.AsyncClient, writer: RawWriter, ticker: str) -> None:
         async with self.sem:
-            resp = await client.get(f"{BASE}/markets/{ticker}/orderbook")
+            resp = await self._get(client, f"{BASE}/markets/{ticker}/orderbook")
         resp.raise_for_status()
         t = time.time_ns()
         writer.write(
@@ -107,7 +150,7 @@ class KalshiPoller:
             params = {"limit": 1000, "min_ts": since}
             if cursor:
                 params["cursor"] = cursor
-            resp = await client.get(f"{BASE}/markets/trades", params=params)
+            resp = await self._get(client, f"{BASE}/markets/trades", params)
             resp.raise_for_status()
             body = resp.json()
             for trade in body["trades"]:
@@ -154,6 +197,12 @@ class KalshiPoller:
                         *(self.poll_book(client, writer, t) for t in list(self.tickers)),
                         return_exceptions=True,
                     )
+                    if self.n_throttled:
+                        writer.event(self.venue, "throttled", n=self.n_throttled)
+                        log.info(
+                            "kalshi: %d requests throttled (429) and retried", self.n_throttled
+                        )
+                        self.n_throttled = 0
                     errors = [r for r in results if isinstance(r, Exception)]
                     if errors:
                         first = repr(errors[0])
