@@ -99,18 +99,27 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
 4. **VM sync (in progress 2026-11-04).** Done: rclone v1.75.2 (arm64) installed on the VM, the
    `gdrive` remote copied over (`~/.config/rclone/rclone.conf`, mode 600; expires with the weekly
    login, so after each `deploy/reauth-drive.sh` copy `rclone.conf` and `drc-authorized-at` to
-   the VM with `scp`), the VM's repo checkout is on `infra/15-drive-sync`, and the **initial
-   upload of the VM's existing raw (`gdrive:drc/vm-london`, 1,647 files, ~27 GB) was started
-   2026-11-04 15:18 UTC** (log `~/sync-initial.log` on the VM; it prints `push exit=0`, then
-   `verify`, then `=== done`). Written but NOT yet enabled: `deploy/sync-cycle.sh` +
+   the VM with `scp`), the VM's repo checkout is on `infra/15-drive-sync` (plus local merges of
+   the fix branches, disposable; go back to `main` once the PRs land), and the **initial
+   upload of the VM's existing raw (`gdrive:drc/vm-london`) finished and verified 2026-11-04:
+   1,668 raw files, 0 missing, 0 differing, 28.3 GB** (about 51 MB/s for the large files). Written
+   but NOT yet enabled: `deploy/sync-cycle.sh` +
    `drc-sync.service/.timer` (hourly: normalize closed hours, push, verify, prune-local).
    To enable once the initial upload verifies: `sudo systemctl enable --now drc-sync.timer`.
    Weekly token expiry applies (see "OAuth app status").
    **Why this was urgent:** the VM's local cap (30 GB, now 50 GB) was deleting raw days nobody
    had backed up: `polymarket/price_change` is ~4.5 GB/day compressed, and days from Oct 27-29
    were already gone before any upload. See `docs/gotchas.md`.
-   Open: the first real hourly cycle; how long `drc-normalize` takes per hour on the ARM cores.
-5. Expiry: first real `expire-remote` dry run once data older than 15 days exists.
+   **First cycle, 2026-11-04:** `drc-normalize` was OOM-killed (11.7 GB peak) on polymarket
+   2026-10-30 00:00, a 601 MB compressed hour; the cycle stopped without pruning, as designed, and
+   the recorder was untouched. Fixed in PR #26 (issue #25): streaming normalizer, same hour now
+   peaks at 3.5 GB in 190 s, output identical on 18.8M real rows. The backlog of ~140 big hours
+   then runs as one supervised cycle (log `~/cycle2.log` on the VM); enable the timer after it
+   completes cleanly.
+5. Expiry: first real `expire-remote` dry run once data older than 15 days exists. **Add a
+   guard first:** `expire-remote` should refuse to delete a raw day that has no normalized
+   Parquet on Drive. If normalization silently fails for a few weeks, as it just did, the 15-day
+   rule would otherwise erase the only copy of that data. (Not built yet.)
 6. Restore test: pull into a clean directory, run `drc-normalize`, compare row counts.
 7. Docs for Chris (`docs/onboarding.md`): install rclone, authorize, `drc-sync pull`.
 8. Parser verification (#20) is the priority behind all of this: raw expires after 15 days.
