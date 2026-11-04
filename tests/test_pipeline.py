@@ -110,3 +110,49 @@ def test_closed_only_skips_the_hour_still_being_recorded(tmp_path):
     # without the flag the open hour is still processed (existing behaviour)
     norm2 = tmp_path / "norm2"
     assert len(normalize_all(raw, norm2, now=inside)) == 1
+
+
+def _read_all(norm_root):
+    return {
+        p.relative_to(norm_root): pl.read_parquet(p)
+        for p in sorted(norm_root.rglob("hour=*.parquet"))
+    }
+
+
+def test_chunked_output_equals_unchunked_output(tmp_path, monkeypatch):
+    """The memory fix builds tables in bounded chunks; the result must not depend on chunk size."""
+    from drc.normalize import pipeline
+
+    raw = tmp_path / "raw"
+    _write_raw(raw)
+    normalize_all(raw, tmp_path / "big")
+    monkeypatch.setattr(pipeline, "CHUNK_ROWS", 1)  # a flush after every message
+    normalize_all(raw, tmp_path / "tiny")
+    a, b = _read_all(tmp_path / "big"), _read_all(tmp_path / "tiny")
+    assert a.keys() == b.keys() and a
+    assert all(a[k].equals(b[k]) and a[k].schema == b[k].schema for k in a)
+
+
+def test_unsorted_channel_file_falls_back_to_a_full_sort(tmp_path, caplog):
+    """Kalshi books are stamped with explicit times and can go back in time within a file; a
+    streaming merge would then differ from a sort, so the pipeline must sort instead."""
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    w = RawWriter(raw)
+    w.event("kraken", "connect", ts_ns=T0 + 1)
+    w.write("kraken", "book", _kraken_snapshot(11.0, 2.0), ts_ns=T0 + 50)  # written first...
+    w.write("kraken", "book", _kraken_snapshot(10.0, 1.0), ts_ns=T0 + 20)  # ...but earlier
+    w.close()
+    with caplog.at_level("WARNING"):
+        normalize_all(raw, norm)
+    assert "falling back to a full sort" in caplog.text
+    df = pl.read_parquet(next(norm.rglob("hour=*.parquet")))
+    assert df["ts_recv"].to_list() == sorted(df["ts_recv"].to_list())
+    assert df["price"].drop_nulls().to_list()[0] == 10.0  # the earlier snapshot comes first
+
+
+def test_sorted_files_do_not_trigger_the_fallback(tmp_path, caplog):
+    raw = tmp_path / "raw"
+    _write_raw(raw)
+    with caplog.at_level("WARNING"):
+        normalize_all(raw, tmp_path / "norm")
+    assert "falling back" not in caplog.text

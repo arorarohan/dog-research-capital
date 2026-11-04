@@ -147,15 +147,31 @@ def _is_json_scalar(body: bytes) -> bool:
     return True
 
 
+def _iter_lines(fh, chunk_size: int = 1 << 20):
+    """Lines of a binary stream, one at a time, holding about one chunk in memory."""
+    tail = b""
+    while chunk := fh.read(chunk_size):
+        parts = (tail + chunk).split(b"\n")
+        tail = parts.pop()
+        yield from parts
+    if tail:
+        yield tail
+
+
 def read_lines(path: Path):
-    """Iterate decoded records from a .jsonl or .jsonl.zst file, skipping undecodable lines."""
-    if path.suffix == ".zst":
-        dctx = zstandard.ZstdDecompressor()
-        with path.open("rb") as fh, dctx.stream_reader(fh) as reader:
-            lines = reader.read().splitlines()
-    else:
-        with path.open("rb") as fh:
-            lines = fh.readlines()
+    """Iterate decoded records from a .jsonl or .jsonl.zst file, skipping undecodable lines.
+
+    Lazy: an hour of Polymarket price changes is several GB decompressed (a 600 MB .zst on
+    2026-10-30), so the file is read a chunk at a time, never whole."""
+    with path.open("rb") as fh:
+        if path.suffix == ".zst":
+            with zstandard.ZstdDecompressor().stream_reader(fh) as reader:
+                yield from _decode(_iter_lines(reader), path)
+        else:
+            yield from _decode(_iter_lines(fh), path)
+
+
+def _decode(lines, path: Path):
     for i, line in enumerate(lines):
         try:
             yield orjson.loads(line)

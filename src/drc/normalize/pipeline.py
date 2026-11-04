@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import bisect
 import calendar
+import heapq
 import logging
 import time
 from pathlib import Path
@@ -67,28 +68,59 @@ def out_path(norm_root: Path, table: str, venue: str, date: str, hour: int) -> P
     return norm_root / table / f"venue={venue}" / f"date={date}" / f"hour={hour:02d}.parquet"
 
 
-def normalize_hour(
-    raw_root: Path, norm_root: Path, venue: str, date: str, hour: int, force: bool = False
-) -> dict[str, int]:
-    """Normalize one hour. Returns row counts per table (empty dict if skipped)."""
-    files = _hour_files(raw_root, venue, date, hour)
-    if not files:
-        return {}
-    outs = [out_path(norm_root, t, venue, date, hour) for t in ("trades", "book_events")]
-    newest_input = max(p.stat().st_mtime for p in files.values())
-    if not force and all(o.exists() and o.stat().st_mtime >= newest_input for o in outs):
-        return {}
+# Rows are accumulated in Python lists and turned into a polars chunk every CHUNK_ROWS, so peak
+# memory is bounded by the chunk plus the finished chunks (columnar, far smaller than lists).
+CHUNK_ROWS = 500_000
 
-    # Merge every channel of the hour into one stream ordered by receive time.
-    records = []
-    for channel, path in files.items():
-        for line_idx, rec in enumerate(read_lines(path)):
-            records.append((rec["t"], CHANNEL_ORDER[(venue, channel)], line_idx, channel, rec["m"]))
-    records.sort(key=lambda r: r[:3])
 
-    connects = connect_times(raw_root, venue)
-    trades: dict[str, list] = {k: [] for k in TRADES_SCHEMA}
-    book: dict[str, list] = {k: [] for k in BOOK_EVENTS_SCHEMA}
+class _Unsorted(Exception):
+    """A channel file is not in receive-time order, so a streaming merge would not equal a sort."""
+
+
+def _sort_key(rec: tuple) -> tuple:
+    return rec[:3]  # (receive time, channel order, line index): unique, so the order is total
+
+
+def _channel_stream(venue: str, channel: str, path: Path, strict: bool):
+    """Records of one channel file as (ts_recv, channel order, line index, channel, message).
+    With `strict`, raise _Unsorted the moment receive time goes backwards."""
+    order = CHANNEL_ORDER[(venue, channel)]
+    prev = None
+    for line_idx, rec in enumerate(read_lines(path)):
+        t = rec["t"]
+        if strict and prev is not None and t < prev:
+            raise _Unsorted(f"{channel} file goes back in time at line {line_idx}")
+        prev = t
+        yield (t, order, line_idx, channel, rec["m"])
+
+
+class _Table:
+    """Column-wise row accumulator that spills to a polars chunk every `chunk_rows` rows."""
+
+    def __init__(self, schema: dict, chunk_rows: int) -> None:
+        self.schema, self.chunk_rows = schema, chunk_rows
+        self.cols: dict[str, list] = {k: [] for k in schema}
+        self.frames: list[pl.DataFrame] = []
+
+    def maybe_flush(self) -> None:
+        if len(self.cols["venue"]) >= self.chunk_rows:
+            self.flush()
+
+    def flush(self) -> None:
+        if self.cols["venue"]:
+            self.frames.append(pl.DataFrame(self.cols, schema=self.schema))
+            self.cols = {k: [] for k in self.schema}
+
+    def frame(self) -> pl.DataFrame:
+        self.flush()
+        if not self.frames:
+            return pl.DataFrame({k: [] for k in self.schema}, schema=self.schema)
+        return pl.concat(self.frames, rechunk=False)
+
+
+def _build(records, venue: str, connects: list[int]) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Parse receive-ordered records into the `trades` and `book_events` frames."""
+    trades, book = _Table(TRADES_SCHEMA, CHUNK_ROWS), _Table(BOOK_EVENTS_SCHEMA, CHUNK_ROWS)
     msg_id = 0
     for ts_recv, _, _, channel, msg in records:
         table, parse = PARSERS[(venue, channel)]
@@ -102,7 +134,7 @@ def normalize_hour(
         msg_id += 1
         for row in rows:
             if isinstance(row, Trade):
-                cols = trades
+                cols = trades.cols
                 cols["trade_id"].append(row.trade_id)
                 cols["replay"].append(row.replay)
                 cols["price"].append(row.price)
@@ -110,7 +142,7 @@ def normalize_hour(
                 cols["side"].append(row.side)
             else:
                 assert isinstance(row, BookRow) and table == "book"
-                cols = book
+                cols = book.cols
                 cols["msg_id"].append(msg_id)
                 cols["kind"].append(row.kind)
                 cols["side"].append(row.side)
@@ -121,13 +153,41 @@ def normalize_hour(
             cols["epoch"].append(epoch)
             cols["ts_recv"].append(ts_recv)
             cols["ts_exch"].append(row.ts_exch)
+        trades.maybe_flush()
+        book.maybe_flush()
+    return trades.frame(), book.frame()
+
+
+def normalize_hour(
+    raw_root: Path, norm_root: Path, venue: str, date: str, hour: int, force: bool = False
+) -> dict[str, int]:
+    """Normalize one hour. Returns row counts per table (empty dict if skipped)."""
+    files = _hour_files(raw_root, venue, date, hour)
+    if not files:
+        return {}
+    outs = [out_path(norm_root, t, venue, date, hour) for t in ("trades", "book_events")]
+    newest_input = max(p.stat().st_mtime for p in files.values())
+    if not force and all(o.exists() and o.stat().st_mtime >= newest_input for o in outs):
+        return {}
+
+    connects = connect_times(raw_root, venue)
+    try:
+        # Each channel file is written in receive-time order, so a k-way merge yields the same
+        # global order as sorting everything, holding only one record per channel at a time.
+        streams = [_channel_stream(venue, ch, p, strict=True) for ch, p in files.items()]
+        trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, connects)
+    except _Unsorted as e:
+        log.warning(
+            "%s %s %02d: %s; falling back to a full sort (needs more memory)", venue, date, hour, e
+        )
+        records = sorted(
+            (r for ch, p in files.items() for r in _channel_stream(venue, ch, p, strict=False)),
+            key=_sort_key,
+        )
+        trades_df, book_df = _build(records, venue, connects)
 
     counts = {}
-    for name, cols, schema in (
-        ("trades", trades, TRADES_SCHEMA),
-        ("book_events", book, BOOK_EVENTS_SCHEMA),
-    ):
-        df = pl.DataFrame(cols, schema=schema)
+    for name, df in (("trades", trades_df), ("book_events", book_df)):
         counts[name] = df.height
         path = out_path(norm_root, name, venue, date, hour)
         if df.height == 0:

@@ -108,3 +108,28 @@ def test_compress_closed_keeps_the_original_if_the_compressed_copy_does_not_matc
     assert RawWriter(tmp_path).compress_closed() == 0
     assert path.exists()  # the only copy is untouched
     assert not list(path.parent.glob("*.zst*"))  # and no stray compressed file is left behind
+
+
+def test_iter_lines_handles_chunk_boundaries_and_missing_final_newline():
+    import io
+
+    data = b'{"a":1}\n{"bb":22}\n\n{"ccc":333}'  # empty line, and no trailing newline
+    for size in (1, 2, 3, 5, 7, 1000):  # every way a line can straddle a chunk
+        got = list(writer_mod._iter_lines(io.BytesIO(data), chunk_size=size))
+        assert got == [b'{"a":1}', b'{"bb":22}', b"", b'{"ccc":333}'], size
+
+
+def test_read_lines_is_lazy_and_zst_matches_plain(tmp_path):
+    import zstandard
+
+    lines = [b'{"t":%d,"m":{"x":%d}}' % (i, i) for i in range(2000)]
+    lines.insert(500, b'{"t":1,"m":')  # corrupt: skipped, not fatal
+    body = b"\n".join(lines) + b"\n"
+    plain, zst = tmp_path / "a.jsonl", tmp_path / "b.jsonl.zst"
+    plain.write_bytes(body)
+    zst.write_bytes(zstandard.ZstdCompressor().compress(body))
+    gen = read_lines(zst)
+    assert next(gen)["t"] == 0  # a generator: nothing past the first record has been decoded yet
+    gen.close()
+    assert [r["t"] for r in read_lines(zst)] == [r["t"] for r in read_lines(plain)]
+    assert len(list(read_lines(plain))) == 2000
