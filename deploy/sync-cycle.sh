@@ -14,7 +14,9 @@ RAW="${DRC_RAW:-data/raw_forward}"
 NORM="${DRC_NORM:-data/norm_forward}"
 
 echo "=== cycle $(date -u +%FT%TZ) host=$DRC_HOST raw=$RAW norm=$NORM"
-uv run drc-normalize --raw "$RAW" --norm "$NORM" --closed-only
+# Cap the normalizer's address space (default 9 GB on a 12 GB machine) so a runaway can only
+# fail itself, never take the recorder down with it. Subshell: rclone (Go) must not inherit it.
+(ulimit -v "${DRC_NORMALIZE_VMEM_KB:-9000000}"; uv run drc-normalize --raw "$RAW" --norm "$NORM" --closed-only)
 uv run drc-sync push --what raw,norm
 uv run drc-sync verify --what raw,norm
 uv run drc-sync prune-local --apply
