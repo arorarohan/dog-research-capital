@@ -25,6 +25,11 @@ log = logging.getLogger(__name__)
 
 CHANNEL_ORDER = {key: i for i, key in enumerate(PARSERS)}
 
+# zstd level for the Parquet we keep (and upload). Measured 2026-11-04 on Polymarket book
+# events: level 3 (default) 54.9 MB, 15 -> 38.1 MB, 19 -> 37.0 MB, 22 -> 36.3 MB; write time
+# 0.2 s -> 3.9 s per two hours of data; read time unchanged. Kraken books shrink only ~6%.
+PARQUET_ZSTD_LEVEL = 19
+
 
 def connect_times(raw_root: Path, venue: str) -> list[int]:
     out: list[int] = []
@@ -128,7 +133,7 @@ def normalize_hour(
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        df.write_parquet(tmp, compression="zstd")
+        df.write_parquet(tmp, compression="zstd", compression_level=PARQUET_ZSTD_LEVEL)
         tmp.replace(path)
     return counts
 

@@ -14,9 +14,11 @@ from the archive unless you run `expire-remote --apply`.
 - One hour a week (12:00 UTC on Mondays, `sample_weekday` in the config) of every raw channel is
   also copied to `sample/` and kept forever, as parser regression fixtures. Weekly rather than
   daily (decided 2026-10-27): daily would be about 58 GB a year of a 400 GiB Drive.
-- Size reference (measured 2026-10-27): Polymarket Parquet is ~1/3 of compressed raw, other
-  venues ~0.8; zstd level 19 would save another 10-30%. Raw at 15 days is ~59 GB for the VM's
-  forward config; Parquet forever would fill the Drive in under a year or two (revisit).
+- Size reference (measured 2026-10-27, level re-measured 2026-11-04): Parquet is written at zstd
+  level 19. Polymarket (the VM's dominant data) is now ~0.22 of compressed raw (was 0.33 at the
+  default level; write time +40%, reads unchanged); Coinbase/Kraken/Kalshi stay near 0.8.
+  Raw at 15 days is ~59 GB for the VM's forward config; Parquet at ~0.9 GB/day would take about a
+  year to fill what is left of the Drive (~320 GB), so revisit before then.
 - Local raw older than 7 days is pruned only after the archive confirms it by size and hash.
 - Settings live in `config/sync.toml`.
 
@@ -93,7 +95,7 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
    `732823808349-ln5j74i416a29ameu0i793bh16sqskec.apps.googleusercontent.com` (not secret); the
    secret lives only in `~/.config/rclone/client_secret.txt` (mode 600) and the Cloud console.
 2. ~~Confirm the initial upload with `verify`~~ done 2026-10-28.
-3. Parquet written at zstd level 19 in `normalize` (saves 10-30%).
+3. ~~Parquet at zstd level 19~~ done 2026-11-04 (Polymarket Parquet -32%).
 4. VM: install rclone, copy the remote config (own client), systemd timer that normalizes
    closed hours, pushes, verifies, and runs `prune-local --apply`; check that `drc-normalize`
    skips the open hour and how long an hour takes on the ARM cores.

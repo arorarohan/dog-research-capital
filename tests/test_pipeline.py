@@ -75,3 +75,23 @@ def test_idempotent_and_skips_up_to_date_hours(tmp_path):
     f = next(raw.rglob("book/*/*.jsonl"))
     os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 100))
     assert len(normalize_all(raw, norm)) == 1
+
+
+def test_parquet_is_written_at_the_configured_zstd_level(tmp_path, monkeypatch):
+    from drc.normalize import pipeline
+
+    seen = []
+    real = pl.DataFrame.write_parquet
+
+    def spy(self, file, **kw):
+        seen.append((kw.get("compression"), kw.get("compression_level")))
+        return real(self, file, **kw)
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", spy)
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    _write_raw(raw)
+    normalize_all(raw, norm)
+    assert seen and set(seen) == {("zstd", pipeline.PARQUET_ZSTD_LEVEL)}
+    assert pipeline.PARQUET_ZSTD_LEVEL == 19
+    # the tables still read back
+    assert all(pl.read_parquet(f).height > 0 for f in norm.rglob("hour=*.parquet"))
