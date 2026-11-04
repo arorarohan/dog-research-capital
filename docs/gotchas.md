@@ -108,3 +108,14 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   Run `ruff check` and `ruff format --check` too (CI does).
 - `ruff format` rewraps code, so scripted string-replace edits of formatted files can silently
   miss. Check that an edit applied before committing.
+- **Size normalization memory by the biggest hour, not the average.** Polymarket price-change hours
+  on the deadline universe reach 500-600 MB compressed (about 5 GB of JSON, ~18M rows); the old
+  normalizer held every parsed message of the hour in a list and read each file whole, peaking at
+  11.7 GB and getting OOM-killed on the 12 GB VM, while earlier laptop hours were 3x smaller and
+  fine. It now streams (k-way merge of the time-ordered channel files, lazy zst reads, chunked
+  tables): the same hour peaks at 3.5 GB. Two traps remain: Kalshi orderbook files are NOT in
+  receive-time order (explicit timestamps), so those hours take the full-sort fallback; and
+  `ulimit -v` breaks Go programs (rclone), so cap only the Python step.
+- **Never `pkill -f "<text that is also in your own command line>"` over SSH.** The remote shell's
+  command line contains the pattern, so the command kills itself (exit 255 / 143). Put the commands
+  in a script file, or use a pattern like `[d]rc-normalize`.
