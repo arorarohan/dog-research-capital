@@ -71,9 +71,9 @@ bash deploy/reauth-drive.sh <client_id>   # prints a link; open it, Advanced > G
 The client secret is read from `~/.config/rclone/client_secret.txt` (mode 600). Never paste it into
 chat or commit it. Afterwards `drc-sync verify` confirms access.
 
-## Status (2026-10-27 end of day)
+## Status (2026-11-04)
 Done: `drc-sync` built and tested (198 tests); rclone v1.75.2 installed on Rohan's laptop;
-remote `gdrive` configured (full `drive` scope, using rclone's *shared* client ID); round trip and
+remote `gdrive` configured with full `drive` scope; round trip and
 `--immutable` refusal tested on the real Drive; stale plain `.jsonl` hours are compressed (with
 hash verification) before upload; **initial laptop upload (host `rohan-laptop`) finished and
 verified 2026-10-28**: raw 70, norm 20, hist 1,675, runs 4 files, all matching by size and hash,
@@ -85,11 +85,13 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
 `drc-sync verify` should show `missing=0 differ=0` for every group.
 
 ### Outstanding (in order)
-1. **Own Google OAuth client** (rclone's shared one is retired during 2026, so this is urgent).
-   Rohan does the console clicks: new Cloud project, enable Drive API, OAuth consent screen
-   External, add himself as a test user, Desktop-app client ID. Staying in Testing for now (see
-   above), so tokens last 7 days. Then run `deploy/reauth-drive.sh`; uploaded files stay as they
-   are.
+1. ~~Own Google OAuth client~~ **done 2026-11-04.** Cloud project `drc-rclone` (Drive API on,
+   External, Testing, Rohan as test user), Desktop-app client created, `gdrive` remote switched to
+   it and re-verified (`drc-sync verify`: 1,769 files match). **The login expires every 7 days**
+   (first expiry ~2026-11-11; `drc-sync` warns from day 5): run `deploy/reauth-drive.sh
+   <client_id>` weekly until the app is published (see "OAuth app status"). The client ID is
+   `732823808349-ln5j74i416a29ameu0i793bh16sqskec.apps.googleusercontent.com` (not secret); the
+   secret lives only in `~/.config/rclone/client_secret.txt` (mode 600) and the Cloud console.
 2. ~~Confirm the initial upload with `verify`~~ done 2026-10-28.
 3. Parquet written at zstd level 19 in `normalize` (saves 10-30%).
 4. VM: install rclone, copy the remote config (own client), systemd timer that normalizes

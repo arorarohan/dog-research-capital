@@ -40,7 +40,7 @@ json.loads(m.group(1))
 print(m.group(1))
 PY
 )
-"$R" config update gdrive client_id="$ID" client_secret="$SECRET" token="$TOKEN" > /dev/null
+"$R" config update gdrive client_id="$ID" client_secret="$SECRET" token="$TOKEN" --non-interactive > /dev/null
 chmod 600 "$CONF_DIR/rclone.conf"
 date +%s > "$STAMP"
 echo "gdrive re-authorized at $(date -u +%FT%TZ)"
