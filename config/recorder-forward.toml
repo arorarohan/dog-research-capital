@@ -12,7 +12,8 @@
 data_dir = "data/raw_forward"
 flush_secs = 5
 maintenance_secs = 600
-max_total_gb = 30
+max_total_gb = 50   # local backstop. Polymarket price_change is ~4.5 GB/day compressed (measured 2026-11-04);
+                    # 7 days kept locally + norm/OS needs ~40 GB. Was 30, which deleted unsynced days.
 
 [polymarket]
 enabled = true
