@@ -108,3 +108,25 @@ def test_compress_closed_keeps_the_original_if_the_compressed_copy_does_not_matc
     assert RawWriter(tmp_path).compress_closed() == 0
     assert path.exists()  # the only copy is untouched
     assert not list(path.parent.glob("*.zst*"))  # and no stray compressed file is left behind
+
+
+def test_compress_closed_skips_a_file_the_other_process_already_finished(tmp_path, monkeypatch):
+    path = hour_path(tmp_path, "kraken", "book", T0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'{"t":1,"m":{"a":1}}\n')
+    # listed, then deleted by the other process before we open it
+    monkeypatch.setattr(writer_mod, "stale_plain_files", lambda *a, **k: [path])
+    path.unlink()
+    assert RawWriter(tmp_path).compress_closed() == 0
+    assert not list(path.parent.glob("*"))  # no stray tmp
+
+
+def test_compress_closed_never_overwrites_an_existing_zst(tmp_path):
+    path = hour_path(tmp_path, "kraken", "book", T0)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'{"t":1,"m":{"a":1}}\n')
+    final = path.with_name(path.name + ".zst")
+    final.write_bytes(b"other process's result")
+    assert RawWriter(tmp_path).compress_closed() == 0
+    assert final.read_bytes() == b"other process's result"
+    assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
