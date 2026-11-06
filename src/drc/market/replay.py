@@ -1,7 +1,9 @@
 """Replay normalized book events into top-of-book states.
 
 Rules that keep reconstruction honest:
-- A new `epoch` (recorder reconnect) wipes every book of the venue; nothing carries across.
+- A new `epoch` (recorder reconnect) for a symbol wipes that symbol's book; nothing carries
+  across. Epochs are per symbol: with one connection per venue every symbol's epoch changes
+  together, and with sharded connections (Polymarket, #23) only the reconnecting shard's do.
 - A `reset` row starts a snapshot for one symbol; its levels follow.
 - `update` rows for a symbol that has not been snapshotted in the current epoch are dropped
   (counted in `ReplayStats.dropped_unsynced`) because applying them to an empty book is wrong.
@@ -86,7 +88,7 @@ def replay_tops(
     books: dict[tuple[str, str], Book] = {}
     synced: set[tuple[str, str]] = set()
     last_state: dict[tuple[str, str], tuple] = {}
-    cur_epoch: dict[str, int] = {}
+    cur_epoch: dict[tuple[str, str], int] = {}
     last_exch: dict[tuple[str, str], int | None] = {}
 
     cols = [
@@ -103,12 +105,12 @@ def replay_tops(
     ]
     touched: set[tuple[str, str]] = set()
     cur_msg: tuple[int, int] | None = None
-    cur_ctx: tuple | None = None
+    cur_ctx: int | None = None  # ts_recv of the message being applied
 
     def flush() -> None:
         for key in touched:
             venue, symbol = key
-            row = _top_row(venue, symbol, cur_ctx[0], cur_ctx[1], last_exch.get(key), books[key])
+            row = _top_row(venue, symbol, cur_epoch[key], cur_ctx, last_exch.get(key), books[key])
             state = row[5:]
             if last_state.get(key) != state:
                 last_state[key] = state
@@ -125,14 +127,14 @@ def replay_tops(
                 flush()
             cur_msg = msg
             stats.messages += 1
-        cur_ctx = (epoch, ts)
-        if cur_epoch.get(venue) != epoch:  # reconnect: forget everything for this venue
-            cur_epoch[venue] = epoch
-            for key in [k for k in books if k[0] == venue]:
-                books[key].clear()
-                synced.discard(key)
-                last_state.pop(key, None)
+        cur_ctx = ts
         key = (venue, symbol)
+        if cur_epoch.get(key) != epoch:  # reconnect (of this symbol's connection): start over
+            cur_epoch[key] = epoch
+            if key in books:
+                books[key].clear()
+            synced.discard(key)
+            last_state.pop(key, None)
         if ts_exch is not None:
             last_exch[key] = ts_exch
         stats.symbols.add(symbol)

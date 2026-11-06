@@ -160,7 +160,7 @@ def test_sorted_files_do_not_trigger_the_fallback(tmp_path, caplog):
 
 def test_only_the_unsorted_channel_is_sorted_and_output_equals_a_global_sort(tmp_path, caplog):
     from drc.normalize import pipeline
-    from drc.normalize.pipeline import _build, _channel_stream, _hour_files, connect_times
+    from drc.normalize.pipeline import _build, _channel_stream, _hour_files, load_epochs
 
     raw, norm = tmp_path / "raw", tmp_path / "norm"
     w = RawWriter(raw)
@@ -185,8 +185,61 @@ def test_only_the_unsorted_channel_is_sorted_and_output_equals_a_global_sort(tmp
         (r for ch, p in files.items() for r in _channel_stream("kraken", ch, p, strict=False)),
         key=pipeline._sort_key,
     )
-    trades_df, book_df = _build(expected, "kraken", connect_times(raw, "kraken"))
+    trades_df, book_df = _build(expected, "kraken", load_epochs(raw, "kraken"))
     got_t = pl.read_parquet(out_path(norm, "trades", "kraken", date, hour))
     got_b = pl.read_parquet(out_path(norm, "book_events", "kraken", date, hour))
     assert got_t.equals(trades_df) and got_b.equals(book_df)
     assert got_t.height == 3
+
+
+def _pm_book(asset, price):
+    return (
+        f'[{{"asset_id":"{asset}","timestamp":"1500",'
+        f'"bids":[{{"price":"{price}","size":"10"}}],"asks":[]}}]'
+    )
+
+
+def _pm_change(*assets):
+    changes = ",".join(
+        f'{{"asset_id":"{a}","price":"0.4","size":"5","side":"BUY"}}' for a in assets
+    )
+    return f'{{"timestamp":"2000","price_changes":[{changes}]}}'
+
+
+def test_sharded_connects_give_each_symbol_its_own_epoch(tmp_path):
+    """Shard 1 (A, B) reconnecting must not move the epoch of C on shard 2; a dynamic
+    subscribe starts an epoch for just the added token."""
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    w = RawWriter(raw)
+    w.event("polymarket", "connect", ts_ns=T0 + 1, shard=0, assets=["A", "B"])
+    w.event("polymarket", "connect", ts_ns=T0 + 2, shard=1, assets=["C"])
+    w.write("polymarket", "book", _pm_book("A", "0.4"), ts_ns=T0 + 10)
+    w.write("polymarket", "book", _pm_book("C", "0.4"), ts_ns=T0 + 11)
+    w.write("polymarket", "price_change", _pm_change("A", "C"), ts_ns=T0 + 20)
+    w.event("polymarket", "disconnect", ts_ns=T0 + 30, shard=0, reason="1013")
+    w.event("polymarket", "connect", ts_ns=T0 + 40, shard=0, assets=["A", "B"])
+    w.event("polymarket", "subscribe", ts_ns=T0 + 45, shard=1, assets=["D"])
+    w.write("polymarket", "price_change", _pm_change("A", "C", "D"), ts_ns=T0 + 50)
+    w.close()
+
+    date, hour = _hour_of(T0)
+    normalize_hour(raw, norm, "polymarket", date, hour)
+    book = pl.read_parquet(out_path(norm, "book_events", "polymarket", date, hour))
+    first = {
+        s: e for s, e in book.filter(pl.col("ts_recv") <= T0 + 20).select("symbol", "epoch").rows()
+    }
+    last = {
+        s: e for s, e in book.filter(pl.col("ts_recv") == T0 + 50).select("symbol", "epoch").rows()
+    }
+    assert first == {"A": T0 + 1, "C": T0 + 2}
+    assert last == {"A": T0 + 40, "C": T0 + 2, "D": T0 + 45}
+
+
+def test_epochs_without_assets_stay_venue_wide():
+    from drc.normalize.pipeline import Epochs
+
+    e = Epochs([10, 40], {"A": [25]})
+    assert [e.at("B", t) for t in (5, 10, 39, 40, 99)] == [0, 10, 10, 40, 40]
+    assert [e.at("A", t) for t in (5, 10, 24, 25, 39, 40, 99)] == [0, 10, 10, 25, 25, 40, 40]
+    assert e.at("A", 30) == 25  # cached lookups going back in time are still correct
+    assert e.at("A", 12) == 10
