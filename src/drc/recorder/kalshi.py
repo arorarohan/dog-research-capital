@@ -154,9 +154,10 @@ class KalshiPoller:
     async def poll_trades(self, client: httpx.AsyncClient, writer: RawWriter) -> None:
         """Global trade feed since the last poll. Overlapping windows are de-duplicated by id."""
         since = self._last_trade_ts - 2
-        self._last_trade_ts = int(time.time())
+        started = int(time.time())
         cursor = None
-        for _ in range(MAX_TRADE_PAGES):
+        truncated = False
+        for page in range(MAX_TRADE_PAGES):
             params = {"limit": 1000, "min_ts": since}
             if cursor:
                 params["cursor"] = cursor
@@ -180,6 +181,17 @@ class KalshiPoller:
             cursor = body.get("cursor")
             if not cursor or not body["trades"]:
                 break
+            truncated = page == MAX_TRADE_PAGES - 1
+        # Advance the window only once the poll got through: an exception above (a 429 that
+        # outlasted the retries) leaves `since` where it was, so the next poll refetches the whole
+        # window and the id dedup drops what was already written. Before, the window advanced
+        # first and a failed poll silently lost its trades (2.8% of Kalshi trades on 2026-10-22).
+        self._last_trade_ts = started
+        if truncated:  # newest-first paging hit the cap: the oldest trades of the window are lost
+            writer.event(self.venue, "trades_truncated", since=since, pages=MAX_TRADE_PAGES)
+            log.warning(
+                "kalshi trade poll hit %d pages; older trades in the window lost", MAX_TRADE_PAGES
+            )
 
     async def _catalog_loop(self, client: httpx.AsyncClient, writer: RawWriter) -> None:
         """Hourly full scan (~160 requests, about a minute); runs beside book polling."""
