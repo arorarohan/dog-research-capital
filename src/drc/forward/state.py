@@ -7,8 +7,9 @@ Two independent calculations run side by side so reconciliation means something:
 - `flow_cash` / `flow_qty`: plain cash-flow arithmetic with no cost-basis logic.
 `flow_mismatches()` asserts they agree; `compare()` asserts live state equals a fresh rebuild.
 
-Valuation is liquidation value: longs are marked at the bid (a `mark` event's price), never
-the mid. A position with no mark has no honest value, so `nav()` raises rather than guessing.
+Valuation is liquidation value: a `mark` event's price is the per-share proceeds of selling
+the whole position into the displayed bids net of the exit fee (`broker.liquidation_value`),
+never the mid. A position with no mark has no honest value, so `nav()` raises rather than guessing.
 """
 
 from __future__ import annotations

@@ -86,12 +86,16 @@ qty, fee, levels walked), `order_rejected` / `order_unfilled`, `mark` (liquidati
 **Storage choice: SQLite**, single file `data/ledger/events.sqlite`, with triggers that forbid
 UPDATE/DELETE. Reasons: tens to thousands of events a day, so no scale problem; transactions
 make a session atomic (all of its events or none); a future web app can query it directly;
-tests are trivial. Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
-to keep the DB small. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
+tests are trivial. ~~Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
+to keep the DB small.~~ *Changed in Slice 1 (2026-11-06):* raw book payloads are stored inline
+in `book_snapshot` events, so the hash chain covers the evidence itself and a session stays one
+transaction. Size: ~4 KB per book, ~20-40 books a day, roughly 50 MB a year; revisit if it grows. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
 a `rebuild` command; they are never the source of truth.
 
 **This log is irreplaceable evidence** (unlike market data it cannot be re-downloaded), so it
-needs a backup plan: see open question Q8 in the scoping doc.
+needs a backup plan: see open question Q8 in the scoping doc. Built 2026-11-06 as
+`drc-ledger-backup` (dated commits to `drc-ledger` plus an immutable Drive copy, with a guard
+against tail truncation, which `verify()` alone cannot detect); see `docs/deploy.md`.
 
 ## 4. Firm-level totals ("how much invested, how is each fund doing, total PnL")
 
@@ -139,6 +143,37 @@ Where the live version differs from the backtest on purpose: ask not last trade;
 volume; depth-limited fills; latency delay. The gap between predicted and realized is the
 experiment.
 
+**As built (Slice 1, 2026-11-06).** The charter is `funds/pm-sched-gap-v1.toml`, a **DRAFT**
+until Rohan freezes it; `drc-session` refuses real runs on a draft. Draft choices: universe
+2.5-3.5 days to the scheduled end with >= $50k volume to date (ex ante, as the recorder's
+deadline mode); $12 tickets capped at 25% of displayed depth at the decision ask (Q9's $50-100
+would routinely exceed the cap, median ask depth ~$45); at most $36 per real-world event;
+one buy per token ever. Polymarket has no void: a market that resolves 50/50 settles as
+`split` at 0.5. Marks are liquidation value: the held quantity walked down the displayed bids,
+net of the exit taker fee, with nothing for shares beyond displayed depth; a position with no
+book or no bid is marked at 0. Minimum detectable edge for
+the planned 540 fills (90 days at ~6 a day) is ~5.6c against a predicted 1.2c, so the edge
+verdict will be "inconclusive" for a long time; costs and fill rates are what the first months
+judge (Q11).
+
+**Review hardening (PR #33 review, 2026-11-06).** A real run refuses uncommitted changes under
+`src/`, `funds/`, `pyproject.toml` or `uv.lock`, and `session_started` logs a hash of the session
+code (`code_sha256`) and the git tree of `src/drc/forward`, so the freeze covers code, not just
+the TOML. Charter fields that the code implements one way only (venue, side, limit,
+once_per_token, log_out_of_band, exit rule, cadence, binary-only) must state that value or the
+session refuses. The fund state is read under the ledger's write lock, the ledger allows one
+`fund_created` per fund and one start/finish/miss per session, and the CLI holds a file lock,
+so overlapping runs cannot double-allocate. `--dry-run` is refused on a ledger holding the fund.
+Runs more than `[schedule] max_late_secs` (2 h) late log the day as `session_missed`; the
+universe window is anchored to the scheduled time. The latency wait also checks the wall clock.
+
+**Known limitation (not fixed): a crash rolls back fills.** The whole session is one
+transaction, so a crash after simulated fills discards them and a re-run trades on later books.
+A live broker would keep those fills, so a crashed-and-rerun day is not what live trading would
+have produced. Accepted for now because it is rare and the re-run uses genuinely later books;
+the fix would be to commit each fill in its own transaction and make the re-run resume. See
+`docs/gotchas.md` ("Forward-test sessions").
+
 ## 6. Build plan
 
 - **Slice 0 (core, no network).** Event log + verify; `SimBroker` with depth-aware fills;
@@ -150,10 +185,107 @@ experiment.
   run the rule, trade through `SimBroker`, settle resolved positions, write a static HTML
   report. Scheduling mechanism per Q12.
 - **Slice 2 (treasury and reports).** Firm page: allocated, NAV, PnL per fund, firm total,
-  predicted vs realized with the power note.
+  predicted vs realized with the power note. Built as `drc-report`; see section 8.
 - **Later.** Hypothesis/run registry; a real web app on Rohan's domain reading the same
   SQLite log; remote viewing and auth.
 
 ## 7. Open questions
 
 See `docs/phase4-scoping.md` section 6b (Q8-Q12) for explanations and options.
+
+## 8. Reports: `drc-report` (Slice 2)
+
+`drc-report` reads the event log and writes static HTML: `index.html` (firm) and
+`fund-<fund_id>.html` per fund. It never writes to the log, and every number is a projection
+of it. Two runs over the same log produce byte-identical files.
+
+```
+uv run drc-report                                  # data/ledger/events.sqlite -> data/reports/
+uv run drc-report --ledger PATH --out DIR --charters funds --as-of now
+uv run drc-report --sample --out /tmp/drc-sample   # synthetic demo log, no real data
+```
+
+Each page is one self-contained file (inline CSS and a small inline script for the chart
+tooltip, no network). It works from disk or on a phone and follows the OS light/dark setting.
+Exit codes:
+- 0: the hash chain verified.
+- 1: the chain is broken. The report is still written, with a red badge.
+- 2: the ledger is missing or unreadable. A missing ledger is never created.
+
+`--as-of` defaults to the latest event time in the log, not the wall clock. That keeps output
+repeatable. It sets the end of the dollar-day integral and the age of marks.
+
+**Rules the report enforces.**
+- **Liquidation value only.** Open positions are valued at the last `mark` (bids walked
+  for the held quantity, net of the exit taker fee).
+  The mid appears only in per-fill spread cost and the cost attribution built from it. No
+  headline number is mid-marked.
+- **No guessing.** An open position without a mark makes NAV/PnL `n/a`, labels the firm
+  totals incomplete, and leaves a gap in the NAV curve. A fill marked within 5 minutes is
+  drawn as one step; longer unmarked stretches stay gaps, never interpolated.
+- **Stale marks.** A mark older than 36 h at `as_of` is flagged.
+- **No survivorship.** Closed, halted and killed funds stay in the firm totals, and firm PnL
+  sits next to the hypothesis count.
+- **Flags.** Pauses, resumes, halts and closures (with reasons) are flagged, as are missed
+  sessions, sessions started but never finished, and failed reconciliations.
+- **Caveats.** The section 1 caveats ("what this cannot test") are printed on every page.
+
+**Fund page.**
+- **NAV curve.** A step line at liquidation value next to net allocated, with a hover/keyboard
+  tooltip and a data table.
+- **Predicted vs realized.** Realized net edge per contract over settled win/lose positions
+  (voids are excluded from the sample, but their fees stay in PnL). The page shows realized
+  minus predicted, an interval, and the minimum detectable edge
+  `(z_{1-a/2} + z_power) x sd / sqrt(n)`. It also shows the independent events needed to
+  detect the prediction. Independent unit = distinct `event_id`. The verdict stays
+  "inconclusive by design" until n reaches that count (scoping Q11).
+- **Cost attribution.** Edge vs mid, minus spread paid, minus fees, equals net PnL. It is
+  also split into realized and unrealized.
+- **Capital locked up.** Dollar-days and average deployed, plus return per contract, per
+  dollar allocated and per dollar-day.
+- **Positions.** Open positions with mark age, and exposure grouped by event.
+- **Blotter and settlements.** The blotter shows mid, spread paid, fee and levels walked per
+  fill; settlements are listed per position.
+- **Tallies.** Order outcomes, and candidate verdicts and skip reasons from
+  `market_observed`.
+- **Sessions and reconciliations.**
+
+**Contract with the session job (Slice 1).**
+- **`market_observed` payload.** Carries `verdict` (`trade` / `skip`) and `reason`
+  (`outside_band`, `no_depth`, `risk_cap`, `no_book`, ...).
+- **Prediction.** Read from the `fund_created` payload (`prediction` / `evaluation` keys) if
+  present. Otherwise it comes from `funds/<fund_id>.toml`, but only if
+  `sha256(file bytes)` equals the logged `charter_hash`. An edited charter is ignored,
+  because a prediction written after launch is not a prediction. Slice 1 should therefore
+  log `charter_hash = sha256(file bytes)`.
+- **As integrated (2026-11-06).** `drc-session` logs the charter's `[prediction]` and
+  `[evaluation]` tables verbatim in `fund_created`, so the report reads them from the chain.
+  The report accepts both spellings below and the Slice 1 charter's (`net_per_contract_cents`,
+  `ci95_cents`, sd from `[evaluation] per_contract_sd`). A `split` settlement (Polymarket
+  50/50, pays 0.5) is a decided outcome and counts in the edge sample; only voids are excluded.
+  `tests/test_forward_integration.py` runs several days of real sessions and then `drc-report`
+  on the result, so a field either side renames breaks a test.
+
+Charter format:
+
+```toml
+[prediction]
+edge_per_contract = 0.012   # dollars per contract, net of costs
+ci = [0.005, 0.019]
+sd_per_contract = 0.40      # optional; default 0.40 (binary payoff)
+
+[evaluation]
+alpha = 0.05                # optional, default 0.05, two-sided
+power = 0.80                # optional, default 0.80
+min_events = 9000           # optional, shown next to the power note
+```
+
+**Code.**
+- `src/drc/report/`: `model.py` (data), `render.py` (HTML), `cli.py`.
+- `sample.py`: a synthetic two-fund log written through the real `Fund`/`SimBroker`/risk
+  code. It covers a partial fill, an unfilled order, a risk-rejected order, skips, a win, a
+  loss and a void, a missed session, a manual pause/resume, a drawdown halt and a killed fund.
+- Tests: `tests/test_report.py`.
+
+**Not yet.** Publishing the pages for viewing away from the laptop (scoping Q6) is a separate
+step. The session job or a VM timer can run `drc-report` after each session.

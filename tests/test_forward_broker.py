@@ -120,3 +120,9 @@ def test_sell_hits_bids_best_first():
 def test_size_step_floors_quantity():
     ex = run(order(qty=10.019), book(), broker=SimBroker(BrokerConfig(depth_share=1.0)))
     assert ex.qty == pytest.approx(10.01)
+
+
+def test_depth_capped_size_below_venue_minimum_is_unfilled():
+    # 25% of 16 displayed = 4 < min size 5: the real order could not have been sent
+    ex = run(order(qty=10), book(asks=((0.32, 16),)))
+    assert (ex.status, ex.reason, ex.legs) == ("unfilled", "depth_below_min_size", ())

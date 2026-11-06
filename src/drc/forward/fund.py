@@ -50,14 +50,15 @@ class Fund:
         return events
 
     # ---- lifecycle --------------------------------------------------------------------
-    def create(self, name: str, charter_hash: str, git_sha: str = "") -> None:
+    def create(self, name: str, charter_hash: str, git_sha: str = "", **preregistered) -> None:
+        """`preregistered` (e.g. the charter's `prediction` / `evaluation` tables) is logged
+        verbatim in `fund_created`, so the prediction sits inside the hash chain from day one."""
         if "fund_created" in self.state.seen_types:
             if self.state.charter_hash != charter_hash:
                 raise ValueError("fund exists with a different charter; changed rules = new fund")
             return
-        self._write(
-            [("fund_created", {"name": name, "charter_hash": charter_hash, "git_sha": git_sha})]
-        )
+        payload = {**preregistered, "name": name, "charter_hash": charter_hash, "git_sha": git_sha}
+        self._write([("fund_created", payload)])
 
     def allocate(self, amount: float, note: str = "") -> None:
         if amount <= 0:
@@ -82,13 +83,23 @@ class Fund:
     def finish_session(self, session_id: str, **summary) -> None:
         self._write([("session_finished", summary)], session_id)
 
-    def miss_session(self, session_id: str, reason: str) -> None:
-        self._write([("session_missed", {"reason": reason})], session_id)
+    def miss_session(self, session_id: str, reason: str, **info) -> None:
+        self._write([("session_missed", {**info, "reason": reason})], session_id)
+
+    OBSERVATIONS = frozenset({"market_observed", "book_snapshot"})
+
+    def observe(self, type_: str, payload: dict, session_id: str, ts: int | None = None) -> None:
+        """Log something seen (a candidate's verdict, a raw book) that changes no state."""
+        if type_ not in self.OBSERVATIONS:
+            raise ValueError(f"{type_} is not an observation event")
+        self._write([(type_, payload, ts)] if ts is not None else [(type_, payload)], session_id)
 
     # ---- trading ----------------------------------------------------------------------
-    def mark(self, token: str, bid_price: float, ts: int, session_id: str = "") -> None:
-        """Record the liquidation value of a position (best bid, never the mid)."""
-        self._write([("mark", {"token": token, "price": bid_price}, ts)], session_id)
+    def mark(self, token: str, bid_price: float, ts: int, session_id: str = "", **info) -> None:
+        """Record the liquidation value per share of a position (bids walked net of exit fee,
+        see `broker.liquidation_value`; never the mid). `info` is extra context kept verbatim
+        (the levels walked, or why a position was marked at 0)."""
+        self._write([("mark", {**info, "token": token, "price": bid_price}, ts)], session_id)
 
     def submit(
         self, order: Order, fill_book: BookSnapshot, now: int | None = None, session_id: str = ""
@@ -145,17 +156,18 @@ class Fund:
         self._write(specs, session_id)
         return ex
 
-    def settle(self, token: str, outcome: str, ts: int, session_id: str = "") -> None:
-        """Settle an open position. outcome: win (pays 1), lose (pays 0), void (cost returned)."""
-        if outcome not in ("win", "lose", "void"):
-            raise ValueError("outcome must be win | lose | void")
+    def settle(self, token: str, outcome: str, ts: int, session_id: str = "", **info) -> None:
+        """Settle an open position. outcome: win (pays 1), lose (pays 0), split (pays 0.5, a
+        venue 50/50 resolution), void (cost returned). `info` keeps the venue's resolution
+        fields verbatim."""
+        if outcome not in ("win", "lose", "split", "void"):
+            raise ValueError("outcome must be win | lose | split | void")
         pos = self.state.ledger.positions.get(token)
         if pos is None or pos.qty == 0:
             raise ValueError(f"no open position in {token}")
-        value = {"win": 1.0, "lose": 0.0, "void": pos.avg_cost}[outcome]
-        self._write(
-            [("settlement", {"token": token, "value": value, "kind": outcome}, ts)], session_id
-        )
+        value = {"win": 1.0, "lose": 0.0, "split": 0.5, "void": pos.avg_cost}[outcome]
+        payload = {**info, "token": token, "value": value, "kind": outcome}
+        self._write([("settlement", payload, ts)], session_id)
 
     # ---- controls ---------------------------------------------------------------------
     def check_drawdown(self, session_id: str = "") -> bool:

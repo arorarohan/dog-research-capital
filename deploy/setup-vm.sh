@@ -40,5 +40,10 @@ sed "s|__USER__|$USER|g; s|__APP_DIR__|$APP_DIR|g" deploy/systemd/drc-record.ser
 sed "s|__USER__|$USER|g; s|__APP_DIR__|$APP_DIR|g; s|__HOST__|${DRC_HOST:-vm-london}|g" \
   deploy/systemd/drc-sync.service | sudo tee /etc/systemd/system/drc-sync.service >/dev/null
 sudo cp deploy/systemd/drc-sync.timer /etc/systemd/system/drc-sync.timer
+# Daily forward-test session (installed, NOT enabled: needs a frozen charter and the drc-ledger
+# clone first, docs/deploy.md "Daily forward-test session").
+sed "s|__USER__|$USER|g; s|__APP_DIR__|$APP_DIR|g; s|__HOST__|${DRC_HOST:-vm-london}|g" \
+  deploy/systemd/drc-session.service | sudo tee /etc/systemd/system/drc-session.service >/dev/null
+sudo cp deploy/systemd/drc-session.timer /etc/systemd/system/drc-session.timer
 sudo systemctl daemon-reload
 echo "Setup done. Review the connectivity lines above, then: sudo systemctl enable --now drc-record"
