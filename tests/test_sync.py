@@ -159,6 +159,23 @@ def test_prune_local_deletes_only_old_verified_files(tmp_path):
     assert recent.exists()  # too young to prune, never even checked
 
 
+def test_prune_local_never_deletes_meta_or_catalogs(tmp_path):
+    """#41: normalization assigns epochs from every old `_meta` connect, so pruning old `_meta`
+    makes a later re-normalize give epoch 0 and overwrite good archived Parquet."""
+    d = tmp_path / "data" / "raw_forward"
+    meta = d / f"kalshi/_meta/{day(10)}/05.jsonl.zst"
+    catalog = d / f"kalshi/_catalog/{day(10)}/05.jsonl.zst"
+    trades = d / f"kalshi/trades/{day(10)}/05.jsonl.zst"
+    for f in (meta, catalog, trades):
+        touch(f)
+    fake = FakeRunner()  # the archive verifies everything
+    n, kept = archive(tmp_path, fake).prune_local(7, apply=True, now=NOW)
+    assert (n, kept) == (1, 0)
+    assert meta.exists() and catalog.exists() and not trades.exists()
+    checked = [r for i, c in enumerate(fake.cmds) if c[1] == "check" for r in fake.files_from[i]]
+    assert checked == [f"kalshi/trades/{day(10)}/05.jsonl.zst"]  # exempt files never even checked
+
+
 # ---- expiry -----------------------------------------------------------------------------
 
 
@@ -234,6 +251,24 @@ def test_expire_remote_is_a_dry_run_unless_applied(tmp_path):
     assert fake.files_from[deletes[0]] == [
         f"vm-london/raw/raw_forward/polymarket/book/{day(20)}/05.jsonl.zst"
     ]  # the sample tree is never listed, so it can never be deleted
+
+
+def test_expire_remote_never_deletes_meta_or_catalogs(tmp_path):
+    """#41: old `_meta`/`_catalog` survive both the age rule and the cap, even when the cap
+    cannot be met without them."""
+    listing = [
+        raw_item(day(40), 5, venue="kalshi", channel="_meta", size=500),
+        raw_item(day(40), 5, venue="kalshi", channel="_catalog", size=500),
+        raw_item(day(2), 5, venue="kalshi", channel="_meta", size=500),
+        raw_item(day(40), 5, venue="kalshi", channel="trades"),
+    ]
+    norm = norm_for("raw_forward", "kalshi", day(40), 5)
+    fake = FakeRunner(listing=listing, norm_listing=norm)
+    ex, n = archive(tmp_path, fake).expire_remote(15, 100 / 1e9, apply=True, now=NOW)
+    deletes = [i for i, c in enumerate(fake.cmds) if c[1] == "delete"]
+    assert n == 1 and len(deletes) == 1
+    assert fake.files_from[deletes[0]] == [listing[3]["Path"]]
+    assert not ex.cap_met  # over the cap, but metadata is still kept
 
 
 def test_remote_listing_ignores_non_raw_and_bad_paths():
