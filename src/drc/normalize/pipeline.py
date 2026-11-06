@@ -76,6 +76,10 @@ CHUNK_ROWS = 500_000
 class _Unsorted(Exception):
     """A channel file is not in receive-time order, so a streaming merge would not equal a sort."""
 
+    def __init__(self, channel: str, line_idx: int) -> None:
+        super().__init__(f"{channel} file goes back in time at line {line_idx}")
+        self.channel = channel
+
 
 def _sort_key(rec: tuple) -> tuple:
     return rec[:3]  # (receive time, channel order, line index): unique, so the order is total
@@ -89,7 +93,7 @@ def _channel_stream(venue: str, channel: str, path: Path, strict: bool):
     for line_idx, rec in enumerate(read_lines(path)):
         t = rec["t"]
         if strict and prev is not None and t < prev:
-            raise _Unsorted(f"{channel} file goes back in time at line {line_idx}")
+            raise _Unsorted(channel, line_idx)
         prev = t
         yield (t, order, line_idx, channel, rec["m"])
 
@@ -171,20 +175,32 @@ def normalize_hour(
         return {}
 
     connects = connect_times(raw_root, venue)
-    try:
-        # Each channel file is written in receive-time order, so a k-way merge yields the same
-        # global order as sorting everything, holding only one record per channel at a time.
-        streams = [_channel_stream(venue, ch, p, strict=True) for ch, p in files.items()]
-        trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, connects)
-    except _Unsorted as e:
-        log.warning(
-            "%s %s %02d: %s; falling back to a full sort (needs more memory)", venue, date, hour, e
-        )
-        records = sorted(
-            (r for ch, p in files.items() for r in _channel_stream(venue, ch, p, strict=False)),
-            key=_sort_key,
-        )
-        trades_df, book_df = _build(records, venue, connects)
+    # Each channel file is normally in receive-time order, so a k-way merge yields the same global
+    # order as sorting everything while holding one record per channel. A file that is not (Kalshi
+    # books carry explicit times) is materialised and sorted on its own; the others stay lazy.
+    # Found on the fly: restart with that channel marked, so each channel costs one extra pass.
+    in_memory: set[str] = set()
+    while True:
+        try:
+            streams = []
+            for ch, p in files.items():
+                if ch in in_memory:
+                    records = sorted(_channel_stream(venue, ch, p, strict=False), key=_sort_key)
+                    streams.append(iter(records))
+                else:
+                    streams.append(_channel_stream(venue, ch, p, strict=True))
+            trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, connects)
+            break
+        except _Unsorted as e:
+            in_memory.add(e.channel)
+            log.warning(
+                "%s %s %02d: %s; sorting channel %s in memory (needs more memory)",
+                venue,
+                date,
+                hour,
+                e,
+                e.channel,
+            )
 
     counts = {}
     for name, df in (("trades", trades_df), ("book_events", book_df)):
