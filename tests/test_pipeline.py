@@ -243,3 +243,29 @@ def test_epochs_without_assets_stay_venue_wide():
     assert [e.at("A", t) for t in (5, 10, 24, 25, 39, 40, 99)] == [0, 10, 10, 25, 25, 40, 40]
     assert e.at("A", 30) == 25  # cached lookups going back in time are still correct
     assert e.at("A", 12) == 10
+
+
+def test_every_normalized_hour_has_parquet_or_an_empty_marker_per_table(tmp_path):
+    """The archive's expiry guard (#27) needs 'no rows' to be distinguishable from 'not run'."""
+    from drc.normalize.pipeline import empty_marker
+
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    _write_raw(raw)  # kraken book + trade rows exist, so both tables have Parquet
+    normalize_all(raw, norm)
+    ((venue, date, hour),) = list_hours_of(raw)
+    for table in ("trades", "book_events"):
+        assert out_path(norm, table, venue, date, hour).exists()
+        assert not empty_marker(norm, table, venue, date, hour).exists()
+    # remove the trade channel's raw: the hour is re-normalized and trades becomes an empty marker
+    for f in raw.rglob("trade/*/*.jsonl"):
+        f.unlink()
+    normalize_all(raw, norm, force=True)
+    assert not out_path(norm, "trades", venue, date, hour).exists()
+    assert empty_marker(norm, "trades", venue, date, hour).exists()
+    assert normalize_all(raw, norm) == {}  # the marker counts as up to date: not redone each cycle
+
+
+def list_hours_of(raw):
+    from drc.normalize.pipeline import list_hours
+
+    return [("kraken", d, h) for d, h in list_hours(raw, "kraken")]

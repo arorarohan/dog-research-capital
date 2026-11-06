@@ -5,7 +5,8 @@
     drc-sync verify [--what ...]             compare local files with the archive (size + hash)
     drc-sync status                          how many local files are not archived yet
     drc-sync prune-local [--apply]           delete local raw that the archive has VERIFIED
-    drc-sync expire-remote [--apply]         delete expired raw from the archive (dry run first)
+    drc-sync expire-remote [--apply]         delete expired raw from the archive (dry run first);
+                                             never deletes raw whose Parquet is not on the archive
 
 Nothing is ever deleted unless you pass --apply, and nothing is ever overwritten in raw:
 raw uploads use rclone's --immutable (a changed file is an error, not a replacement).
@@ -194,9 +195,22 @@ class Archive:
         p = self.rc.run("lsjson", self.remote, "-R", "--files-only", "--include", "*/raw/**")
         return plan.parse_remote_listing(p.stdout)
 
+    def list_norm(self) -> set[plan.NormKey]:
+        p = self.rc.run("lsjson", self.remote, "-R", "--files-only", "--include", "*/norm/**")
+        return plan.parse_norm_listing(p.stdout)
+
     def expire_remote(self, max_age: float, cap_gb: float, apply: bool, now: float):
+        """Delete expired raw from the archive, but never a file whose normalized Parquet (or
+        explicit empty marker) is not on the archive too (#27). Returns (Expiry, n_deleted)."""
         listing = self.list_raw()
-        ex = plan.plan_expiry([rf for _, rf in listing], now, max_age, int(cap_gb * 1e9))
+        norm = self.list_norm()
+        ex = plan.plan_expiry(
+            [rf for _, rf in listing],
+            now,
+            max_age,
+            int(cap_gb * 1e9),
+            allowed=lambda f: plan.is_normalized(f, norm),
+        )
         doomed = set(ex.by_age) | set(ex.by_cap)
         paths = [p for p, rf in listing if rf in doomed]
         if apply and paths:
@@ -209,6 +223,20 @@ class Archive:
             finally:
                 os.unlink(lst.name)
         return ex, len(paths)
+
+
+def report_blocked(ex: plan.Expiry) -> None:
+    """List what the guard held back, one line per (host, root, venue, day)."""
+    days: dict[tuple, list[int]] = {}
+    for f in ex.blocked:
+        days.setdefault((f.host, f.root, f.venue, f.date), []).append(f.hour)
+    if not days:
+        return
+    print(f"blocked: not normalized ({len(ex.blocked)} raw files kept; "
+          f"{len(days)} host/venue/days):")  # fmt: skip
+    for (host, root, venue, date), hours in days.items():
+        hrs = sorted(set(hours))
+        print(f"  blocked: not normalized  {host}/{root}/{venue}  {date}  hours {hrs}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -296,9 +324,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"{verb} {n} files: {len(ex.by_age)} past age limit, {len(ex.by_cap)} over cap; "
                   f"{ex.kept_bytes / 1e9:.1f} GB remains")  # fmt: skip
+            report_blocked(ex)
+            if not ex.cap_met:
+                print(
+                    f"WARNING: archive raw is still {ex.kept_bytes / 1e9:.1f} GB, over the "
+                    f"{ex.cap_bytes / 1e9:.0f} GB cap, because the files that would have to go "
+                    "are not normalized. Fix normalization (or raise the cap) before the "
+                    "archive fills up.",
+                    file=sys.stderr,
+                )
             if not args.apply:
                 print("dry run: pass --apply to delete")
-            return 0
+            return 0 if ex.cap_met else 1
     except AuthError as e:
         print(f"AUTH EXPIRED: {e}", file=sys.stderr)
         return 3

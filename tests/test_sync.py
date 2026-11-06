@@ -15,9 +15,10 @@ NOW = calendar.timegm(time.strptime("2026-10-27 12:00", "%Y-%m-%d %H:%M"))
 class FakeRunner:
     """Stands in for the rclone binary: records commands, simulates `check` and `lsjson`."""
 
-    def __init__(self, missing=(), differ=(), listing=(), rc=0):
+    def __init__(self, missing=(), differ=(), listing=(), rc=0, norm_listing=()):
         self.cmds = []
         self.missing, self.differ, self.listing, self.rc = set(missing), set(differ), listing, rc
+        self.norm_listing = norm_listing
         self.files_from = {}
 
     def __call__(self, cmd, capture_output, text):
@@ -39,7 +40,7 @@ class FakeRunner:
                 cmd, 1 if (self.missing or self.differ) else 0, "", ""
             )
         if verb == "lsjson":
-            out = json.dumps(self.listing)
+            out = json.dumps(self.norm_listing if "*/norm/**" in cmd else self.listing)
         return subprocess.CompletedProcess(cmd, self.rc, out, "boom\n" if self.rc else "")
 
 
@@ -194,13 +195,36 @@ def test_exempt_files_count_toward_the_cap_but_are_not_deleted():
     assert files[0] not in ex.by_cap
 
 
+def norm_for(
+    raw_root, venue, date, hour, host="vm-london", tables=("trades", "book_events"), ext="parquet"
+):
+    """Archive listing entries for one normalized hour."""
+    root = plan.NORM_FOR_RAW[raw_root]
+    return [
+        {
+            "Path": f"{host}/norm/{root}/{t}/venue={venue}/date={date}/hour={hour:02d}.{ext}",
+            "Size": 3,
+        }
+        for t in tables
+    ]
+
+
+def raw_item(date, hour, root="raw_forward", venue="polymarket", channel="book", size=100):
+    return {
+        "Path": f"vm-london/raw/{root}/{venue}/{channel}/{date}/{hour:02d}.jsonl.zst",
+        "Size": size,
+    }
+
+
 def test_expire_remote_is_a_dry_run_unless_applied(tmp_path):
     listing = [
         {"Path": f"vm-london/raw/raw_forward/polymarket/book/{day(20)}/05.jsonl.zst", "Size": 5},
         {"Path": f"vm-london/raw/raw_forward/polymarket/book/{day(1)}/05.jsonl.zst", "Size": 5},
         {"Path": f"vm-london/sample/raw_forward/polymarket/book/{day(40)}/12.jsonl.zst", "Size": 5},
     ]
-    fake = FakeRunner(listing=listing)
+    fake = FakeRunner(
+        listing=listing, norm_listing=norm_for("raw_forward", "polymarket", day(20), 5)
+    )
     arc = archive(tmp_path, fake)
     ex, n = arc.expire_remote(15, 300, apply=False, now=NOW)
     assert n == 1 and not any(c[1] == "delete" for c in fake.cmds)
@@ -321,3 +345,115 @@ def test_auth_age_reads_the_stamp_file(tmp_path):
 def test_delete_requires_an_explicit_file_list():
     with pytest.raises(ValueError, match="files-from"):
         Rclone("rclone", FakeRunner()).run("delete", "gdrive:drc/x")
+
+
+# ---- the normalized-first guard (#27) -------------------------------------------------------
+def test_expiry_refuses_raw_with_no_normalized_parquet(tmp_path, capsys):
+    listing = [raw_item(day(20), 5), raw_item(day(20), 6), raw_item(day(20), 7)]
+    # hour 5: both tables as Parquet; hour 6: only trades; hour 7: nothing
+    norm = norm_for("raw_forward", "polymarket", day(20), 5) + norm_for(
+        "raw_forward", "polymarket", day(20), 6, tables=("trades",)
+    )
+    fake = FakeRunner(listing=listing, norm_listing=norm)
+    arc = archive(tmp_path, fake)
+    ex, n = arc.expire_remote(15, 300, apply=True, now=NOW)
+    assert n == 1 and [f.hour for f in ex.blocked] == [6, 7]
+    deletes = [i for i, c in enumerate(fake.cmds) if c[1] == "delete"]
+    assert fake.files_from[deletes[0]] == [listing[0]["Path"]]
+
+
+def test_empty_marker_means_no_rows_not_failed(tmp_path):
+    listing = [raw_item(day(20), 5), raw_item(day(20), 6)]
+    norm = (
+        norm_for("raw_forward", "polymarket", day(20), 5, tables=("trades",))
+        + norm_for("raw_forward", "polymarket", day(20), 5, tables=("book_events",), ext="empty")
+        + norm_for("raw_forward", "polymarket", day(20), 6, tables=("trades",), ext="empty")
+    )  # hour 6: book_events has neither Parquet nor a marker, so it failed or never ran
+    arc = archive(tmp_path, FakeRunner(listing=listing, norm_listing=norm))
+    ex, n = arc.expire_remote(15, 300, apply=False, now=NOW)
+    assert n == 1 and [f.hour for f in ex.blocked] == [6]
+
+
+def test_guard_is_per_host_and_per_root(tmp_path):
+    listing = [raw_item(day(20), 5)]
+    other_host = norm_for("raw_forward", "polymarket", day(20), 5, host="rohan-laptop")
+    other_root = norm_for("raw", "polymarket", day(20), 5)  # raw_forward needs norm_forward
+    arc = archive(tmp_path, FakeRunner(listing=listing, norm_listing=other_host + other_root))
+    ex, n = arc.expire_remote(15, 300, apply=False, now=NOW)
+    assert n == 0 and len(ex.blocked) == 1
+
+
+def test_unparsed_channels_and_weather_are_not_guarded(tmp_path):
+    listing = [
+        raw_item(day(20), 5, channel="rest_snapshot"),  # the normalizer never reads this channel
+        raw_item(day(20), 5, root="raw_weather", venue="openmeteo", channel="forecast"),
+    ]
+    arc = archive(tmp_path, FakeRunner(listing=listing))
+    ex, n = arc.expire_remote(15, 300, apply=False, now=NOW)
+    assert n == 2 and ex.blocked == []
+
+
+def test_cap_rule_respects_the_guard_and_reports_when_it_cannot_fit():
+    files = [
+        plan.RawFile("raw_forward", "polymarket", "book", day(n), 0, 100, "h") for n in (1, 2, 3)
+    ]
+    ok = {files[2]}  # only the oldest day is normalized
+    ex = plan.plan_expiry(files, NOW, 15, cap_bytes=150, allowed=lambda f: f in ok)
+    assert ex.by_cap == [files[2]] and {f.date for f in ex.blocked} == {day(1), day(2)}
+    assert ex.kept_bytes == 200 and not ex.cap_met  # over the cap and cannot get under it
+
+
+def test_cli_lists_blocked_days_and_exits_nonzero_when_the_cap_cannot_be_met(
+    tmp_path, capsys, monkeypatch
+):
+    listing = [raw_item(day(n), h) for n in (1, 2) for h in (3, 4)]
+    fake = FakeRunner(listing=listing, norm_listing=[])
+    monkeypatch.setattr("drc.sync.cli.Rclone", lambda: Rclone("rclone", fake))
+    monkeypatch.setattr("drc.sync.cli.time.time", lambda: NOW)
+    cfg = tmp_path / "sync.toml"
+    cfg.write_text("[retention]\nremote_raw_days = 15\nremote_raw_cap_gb = 0.0000001\n")
+    rc = main(
+        [
+            "--config",
+            str(cfg),
+            "--data",
+            str(tmp_path / "data"),
+            "--host",
+            "vm-london",
+            "expire-remote",
+        ]
+    )
+    out = capsys.readouterr()
+    assert rc == 1 and "WARNING" in out.err and "cap" in out.err
+    assert (
+        f"blocked: not normalized  vm-london/raw_forward/polymarket  {day(2)}  hours [3, 4]"
+        in out.out
+    )
+    assert not any(c[1] == "delete" for c in fake.cmds)
+
+
+def test_norm_listing_parser_ignores_other_files():
+    text = json.dumps(
+        norm_for("raw_forward", "kalshi", "2026-10-01", 5, host="h")
+        + norm_for("raw", "kalshi", "2026-10-01", 6, host="h", ext="empty", tables=("trades",))
+        + [
+            {"Path": "h/norm/norm/bars_1s/venue=kalshi/date=2026-10-01/hour=05.parquet"},
+            {"Path": "h/norm/norm/trades/venue=kalshi/date=2026-10-01/hour=xx.parquet"},
+            {"Path": "h/raw/raw/kalshi/trades/2026-10-01/05.jsonl.zst"},
+        ]
+    )
+    assert plan.parse_norm_listing(text) == {
+        ("h", "norm_forward", "kalshi", "2026-10-01", 5, "trades"),
+        ("h", "norm_forward", "kalshi", "2026-10-01", 5, "book_events"),
+        ("h", "norm", "kalshi", "2026-10-01", 6, "trades"),
+    }
+
+
+def test_sync_uploads_empty_markers_with_the_parquet(tmp_path):
+    touch(tmp_path / "data/norm/trades/venue=kraken/date=2026-10-27/hour=05.parquet")
+    touch(tmp_path / "data/norm/book_events/venue=kraken/date=2026-10-27/hour=05.empty", 0)
+    touch(tmp_path / "data/norm/bars_1s/venue=kraken/hour=05.parquet")
+    assert plan.local_norm_rels(tmp_path / "data", "norm") == [
+        "book_events/venue=kraken/date=2026-10-27/hour=05.empty",
+        "trades/venue=kraken/date=2026-10-27/hour=05.parquet",
+    ]

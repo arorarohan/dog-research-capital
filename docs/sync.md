@@ -35,7 +35,7 @@ uv run drc-sync push                  # upload (closed hours only)
 uv run drc-sync status                # local files not yet archived
 uv run drc-sync verify                # size + hash check against the archive
 uv run drc-sync prune-local           # dry run; --apply deletes verified local raw >7 days old
-uv run drc-sync expire-remote         # dry run; --apply deletes expired archive raw
+uv run drc-sync expire-remote         # dry run; --apply deletes expired archive raw that is normalized
 uv run drc-sync pull --host vm-london --what norm   # into data/remote/vm-london
 ```
 Pulls land in a separate directory per host and never merge into your own `data/raw*`.
@@ -122,10 +122,17 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
    runs at :10 past each hour; survives reboot). Watch it with `systemctl list-timers` and
    `journalctl -u drc-sync`; stop it with `sudo systemctl disable --now drc-sync.timer`. It will
    start failing on or about 2026-11-11 when the Drive login expires (see "OAuth app status").
-5. Expiry: first real `expire-remote` dry run once data older than 15 days exists. **Add a
-   guard first:** `expire-remote` should refuse to delete a raw day that has no normalized
-   Parquet on Drive. If normalization silently fails for a few weeks, as it just did, the 15-day
-   rule would otherwise erase the only copy of that data. (Not built yet.)
+5. Expiry: **guard built (issue #27).** `expire-remote` deletes a raw file only if the archive
+   also holds that hour's normalized output for the same host: for each table (`trades`,
+   `book_events`) either `hour=HH.parquet` or an empty marker `hour=HH.empty` (the normalizer
+   writes the marker when a table has no rows, so "no rows" is distinguishable from "failed").
+   Otherwise the file is skipped and listed as `blocked: not normalized`, in the dry run and the
+   real run alike; the cap rule skips blocked files too and, if that leaves the archive over the
+   cap, prints a WARNING and exits 1. Channels the normalizer does not read (and `raw_weather`)
+   are not guarded. Hours normalized before this change have no markers for tables that were
+   empty, so they show as blocked until `drc-normalize` re-runs them (it does so by itself on the
+   next cycle, since an hour with a missing output is never skipped). Still to do: the first real
+   `expire-remote` dry run once data older than 15 days exists (about 2026-11-12).
 6. Restore test: pull into a clean directory, run `drc-normalize`, compare row counts.
 7. Docs for Chris (`docs/onboarding.md`): install rclone, authorize, `drc-sync pull`.
 8. Parser verification (#20) is the priority behind all of this: raw expires after 15 days.
