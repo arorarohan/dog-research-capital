@@ -50,6 +50,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_LEDGER = Path("data/ledger/events.sqlite")
 DEFAULT_FUNDS = Path("funds")
+WALL_MARGIN_NS = 500_000_000  # wait this far past decision + latency on the wall clock
+MAX_WALL_WAIT_SECS = 30.0  # cap on that extra wait (a big clock step must not hang a session)
 
 
 class _DryRun(Exception):
@@ -113,6 +115,7 @@ def run_session(
     *,
     clock: Callable[[], int] = time.time_ns,
     sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], int] = time.monotonic_ns,
     dry_run: bool = False,
     git_sha: str = "",
 ) -> SessionResult:
@@ -150,7 +153,9 @@ def run_session(
 
     try:
         with log_.transaction():
-            _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, git_sha)
+            _session_body(
+                charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, git_sha
+            )
             if dry_run:
                 raise _DryRun
     except _DryRun:
@@ -158,7 +163,9 @@ def run_session(
     return res
 
 
-def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, git_sha) -> None:
+def _session_body(
+    charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, git_sha
+) -> None:
     fid = charter.fund_id
     # 1. create + allocate
     if "fund_created" not in fund.state.seen_types:
@@ -249,13 +256,27 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
             trades.append((s.token, s.event_id, d, db))
             traded.add(s.token)
 
-    # 6. latency, fresh book, submit
+    # 6. latency, fresh book, submit. The sleep runs on the monotonic clock, but the broker's
+    # gate compares wall-clock times (book.ts vs decision_ts), and the wall clock can step
+    # backwards (docs/gotchas.md). So also wait until the WALL clock has passed decision +
+    # latency (+ a margin), capped; both clocks are logged with the fill book.
+    latency_ns = charter.broker_config().latency_ns
+    mono0 = monotonic()
     if trades:
-        sleep(charter.broker_config().latency_ns / 1e9)
+        sleep(latency_ns / 1e9)
     for tok, ev, d, db in trades:
         decision_ns = db.ts
+        target = decision_ns + latency_ns + WALL_MARGIN_NS
+        wall_now, ready, waits = _await_wall(target, clock, sleep, MAX_WALL_WAIT_SECS)
+        wait_info = {"decision_ns": decision_ns, "target_ns": target, "wall_ready_ns": wall_now,
+                     "wall_ready": ready, "wall_waits": waits,
+                     "mono_waited_ns": monotonic() - mono0}  # fmt: skip
+        if not ready:
+            log.warning("wall clock still %.1fs short of the latency target after %ss; "
+                        "fetching anyway (broker will judge)", (target - wall_now) / 1e9,
+                        MAX_WALL_WAIT_SECS)  # fmt: skip
         raw = md.book(tok)
-        _log_book(fund, raw, "fill", sid)
+        _log_book(fund, raw, "fill", sid, latency_wait=wait_info)
         # no book now (404): an empty book with the decision book's tick, so the broker
         # rejects it as one-sided rather than for an irrelevant reason
         b = parse_book(raw) or BookSnapshot(tok, raw.recv_ns, (), (), db.tick, db.min_size)
@@ -285,8 +306,27 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
     )  # fmt: skip
 
 
-def _log_book(fund: Fund, raw: RawBook, purpose: str, sid: str) -> None:
-    fund.observe("book_snapshot", _book_payload(raw, purpose), sid, raw.recv_ns)
+def _log_book(fund: Fund, raw: RawBook, purpose: str, sid: str, **extra) -> None:
+    fund.observe("book_snapshot", {**_book_payload(raw, purpose), **extra}, sid, raw.recv_ns)
+
+
+def _await_wall(
+    target_ns: int, clock: Callable[[], int], sleep: Callable[[float], None], max_secs: float
+) -> tuple[int, bool, int]:
+    """Sleep until the wall clock reads >= target_ns, for at most `max_secs` of requested
+    sleep in total (a clock stepped back by hours must not hang the session). Returns
+    (wall clock at return, reached?, number of sleeps)."""
+    waited, n = 0.0, 0
+    while True:
+        now = clock()
+        if now >= target_ns:
+            return now, True, n
+        if waited >= max_secs - 1e-9:
+            return now, False, n
+        step = min((target_ns - now) / 1e9, max_secs - waited)
+        sleep(step)
+        waited += step
+        n += 1
 
 
 def _traded_tokens(fund: Fund) -> set[str]:
