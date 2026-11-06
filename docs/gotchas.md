@@ -99,6 +99,31 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Polars infers all-null columns (e.g. Kalshi `token_id`) as the Null type; always cast to the
   declared schema before merging frames.
 
+## Polymarket one-shot books and resolution (verified 2026-11-06, laptop and Oracle VM)
+- **`GET https://clob.polymarket.com/book?token_id=<id>` lists the best price LAST.** Bids come
+  ascending (0.01 first, best bid last), asks descending (0.99 first, best ask last). Taking
+  `[0]` as the best gives the worst level. Prices and sizes are strings. The body also has
+  `market` (condition id), `asset_id`, `timestamp` (ms string, server time of the response,
+  not of the last book change: two fetches seconds apart differ even when nothing traded),
+  `hash`, `tick_size` ("0.01" or "0.001", per market), `min_order_size` ("5" on every market
+  seen), `neg_risk`, `last_trade_price`. `drc.forward.polymarket.parse_book` sorts and converts.
+- **No book is a 404, not an empty book.** Unknown token or resolved market:
+  404 `{"error":"No orderbook exists for the requested token id"}`; missing `token_id`: 400.
+  `POST /books` with `[{"token_id": ...}, ...]` returns a list of the same objects.
+- **Rate limits are generous and throttle rather than reject** (docs, IP-based via Cloudflare):
+  `/book` 1,500 req/10s, `/books` 500/10s; Gamma `/markets` 300/10s, listings 900/10s. No
+  rate-limit headers are returned, so these are unverified by us; a session needs ~20-60
+  requests. One `/book` takes ~75 ms from the laptop; the first call from the VM took ~2.9 s.
+- **Gamma's token lookup silently hides closed markets.** `/markets?clob_token_ids=A&clob_token_ids=B`
+  returns only open ones; a resolved market comes back only with `closed=true` (and then open
+  ones are hidden). Settlement code must ask with `closed=true`, or it never sees a resolution.
+- **A market is settled only when** `closed` is true, `umaResolutionStatus == "resolved"` and
+  `outcomePrices` is exactly `["1","0"]` or `["0","1"]` (`["0.5","0.5"]` is a 50/50 split).
+  `umaResolutionStatuses` keeps the history (`proposed`, `proposed`, `resolved` = disputed once).
+  A closed market without those is still awaiting resolution; do not settle on last prices.
+- **Without a volume floor the 2.5-3.5 day window holds 3,000+ markets** (2026-11-06), mostly
+  tiny; with `volume_num_min=50000` it is ~17. Filter server-side.
+
 ## Research pitfalls (each of these produced a wrong or misleading number once)
 - **Never anchor a horizon to the realized resolution time.** "N days before close" using a
   market's actual close leaks the outcome whenever outcome and close time are linked (events
