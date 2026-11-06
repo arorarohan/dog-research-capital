@@ -20,6 +20,25 @@ from pathlib import Path
 from drc.forward.broker import BrokerConfig
 from drc.forward.risk import RiskLimits
 
+
+class CharterError(Exception):
+    pass
+
+
+# Charter fields that state a rule the code implements in exactly one way, so the code never
+# reads them. They must be present and say what the code does: a charter claiming another rule
+# (say `exit.rule = "stop_loss"`) would otherwise run under rules it does not describe.
+FIXED_RULES: dict[tuple[str, str], object] = {
+    ("universe", "venue"): "polymarket",
+    ("universe", "binary_yes_no_only"): True,
+    ("entry", "side"): "buy_yes",
+    ("entry", "limit"): "decision_best_ask",
+    ("entry", "once_per_token"): True,
+    ("entry", "log_out_of_band"): True,
+    ("exit", "rule"): "hold_to_resolution",
+    ("schedule", "cadence"): "daily",
+}
+
 Z_95_TWO_SIDED = 1.959964
 Z_80_POWER = 0.841621
 
@@ -61,6 +80,19 @@ class Charter:
     @property
     def frozen(self) -> bool:
         return self.status == "frozen"
+
+    def problems(self) -> list[str]:
+        """Fixed-rule fields that are missing or name a rule the code does not implement."""
+        out = []
+        for (table, key), want in FIXED_RULES.items():
+            have = self.raw.get(table, {}).get(key, "<missing>")
+            if have != want or type(have) is not type(want):
+                out.append(f"{table}.{key} = {have!r} (only {want!r} is implemented)")
+        return out
+
+    def validate(self) -> None:
+        if p := self.problems():
+            raise CharterError(f"{self.path}: unsupported charter rules: " + "; ".join(p))
 
     def risk_limits(self) -> RiskLimits:
         r = self.raw["risk"]

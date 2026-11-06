@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import logging
 import subprocess
 import sys
@@ -31,7 +32,7 @@ from pathlib import Path
 
 from drc.backtest.fees import FeeModel, PolymarketFee, resolve_polymarket_fee
 from drc.forward.broker import SimBroker
-from drc.forward.charter import Charter
+from drc.forward.charter import Charter, CharterError
 from drc.forward.eventlog import EventLog
 from drc.forward.fund import Fund
 from drc.forward.polymarket import (
@@ -58,8 +59,18 @@ class _DryRun(Exception):
     pass
 
 
-class CharterError(Exception):
-    pass
+# The code a session runs; its hash goes into every session_started, so a report can show
+# exactly which sessions ran on which code (the charter hash alone pins only the rules file).
+_SRC = Path(__file__).resolve().parent.parent  # src/drc
+CODE_FILES = ("forward/*.py", "backtest/fees.py", "backtest/ledger.py")
+
+
+def code_fingerprint(root: Path = _SRC) -> str:
+    """SHA-256 over (relative path, bytes) of the session's code, as imported."""
+    h = hashlib.sha256()
+    for f in sorted({p for pat in CODE_FILES for p in root.glob(pat)}):
+        h.update(f.relative_to(root).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
 
 
 @dataclass
@@ -118,7 +129,11 @@ def run_session(
     monotonic: Callable[[], int] = time.monotonic_ns,
     dry_run: bool = False,
     git_sha: str = "",
+    code_tree: str = "",
 ) -> SessionResult:
+    """`code_tree`: git tree sha of src/drc/forward at HEAD (the CLI refuses a real run with
+    uncommitted code, so it describes what runs); logged with our own `code_fingerprint`."""
+    charter.validate()
     if not charter.frozen and not dry_run:
         raise CharterError(
             f"{charter.path} is status={charter.status!r}: review and freeze it before a real "
@@ -153,8 +168,10 @@ def run_session(
 
     try:
         with log_.transaction():
+            prov = {"git_sha": git_sha, "forward_tree_sha": code_tree,
+                    "code_sha256": code_fingerprint()}  # fmt: skip
             _session_body(
-                charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, git_sha
+                charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, prov
             )
             if dry_run:
                 raise _DryRun
@@ -164,12 +181,12 @@ def run_session(
 
 
 def _session_body(
-    charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, git_sha
+    charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, prov
 ) -> None:
     fid = charter.fund_id
     # 1. create + allocate
     if "fund_created" not in fund.state.seen_types:
-        fund.create(charter.name, charter.sha256, git_sha)
+        fund.create(charter.name, charter.sha256, prov["git_sha"])
         fund.allocate(float(charter["capital"]["initial"]), note="initial allocation")
 
     # 2. missed sessions since the last one
@@ -195,7 +212,7 @@ def _session_body(
     fund.begin_session(
         sid, date=today.isoformat(), scheduled_utc=scheduled.isoformat(),
         late_secs=round((now - scheduled).total_seconds()), charter_hash=charter.sha256,
-        git_sha=git_sha, dry_run=res.dry_run,
+        dry_run=res.dry_run, **prov,
     )  # fmt: skip
 
     # 3. settle resolved positions
@@ -404,6 +421,16 @@ def check_committed(path: Path) -> str | None:
     return None
 
 
+# what a frozen fund's behaviour depends on: its code, charters, and the locked dependencies
+FROZEN_PATHS = (":(top)src", ":(top)funds", ":(top)pyproject.toml", ":(top)uv.lock")
+
+
+def dirty_paths(git: Callable[..., str] | None = None) -> list[str]:
+    """`git status --porcelain` lines (modified, staged or untracked) under FROZEN_PATHS."""
+    out = (git or _git)("status", "--porcelain", "--", *FROZEN_PATHS)
+    return [ln for ln in out.splitlines() if ln.strip()]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="drc-session", description=__doc__.splitlines()[0])
     ap.add_argument("--fund", required=True, help="fund id; reads funds/<fund>.toml")
@@ -425,6 +452,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(msg, file=sys.stderr)
             return 2
+        if _git("rev-parse", "--is-inside-work-tree") != "true":
+            print("refusing: not a git checkout, so the code cannot be pinned", file=sys.stderr)
+            return 2
+        if dirty := dirty_paths():
+            print(
+                "refusing: uncommitted changes to code, charters or dependencies; a real session "
+                "must run committed code (commit or stash them, or use --dry-run):\n  "
+                + "\n  ".join(dirty),
+                file=sys.stderr,
+            )
+            return 2
         if problem := check_committed(charter.path):
             print(f"refusing: {problem}", file=sys.stderr)
             return 2
@@ -432,7 +470,10 @@ def main(argv: list[str] | None = None) -> int:
     ledger = ledger or EventLog(":memory:")
     try:
         sha = _git("rev-parse", "HEAD")
-        res = run_session(charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha)
+        tree = _git("rev-parse", "HEAD:src/drc/forward")
+        res = run_session(
+            charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha, code_tree=tree
+        )
     except CharterError as e:
         print(f"refusing: {e}", file=sys.stderr)
         return 2
