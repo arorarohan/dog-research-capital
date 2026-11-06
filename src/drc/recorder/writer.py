@@ -11,6 +11,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import logging
+import os
 import time
 from pathlib import Path
 from typing import IO
@@ -96,16 +97,26 @@ class RawWriter:
         for path in stale_plain_files(self.root, min_idle_secs=min_idle_secs):
             if path in open_paths:
                 continue
-            tmp = path.with_name(path.name + ".zst.tmp")
-            with path.open("rb") as src, tmp.open("wb") as dst:
-                cctx.copy_stream(src, dst)
-            # the plain file is the only copy until proven otherwise: read the compressed
-            # copy back and compare content hashes before deleting anything
-            if _sha256(path, compressed=False) != _sha256(tmp, compressed=True):
-                tmp.unlink()
+            final = path.with_name(path.name + ".zst")
+            # unique per process: drc-sync and the recorder's maintenance may race on one file
+            tmp = path.with_name(f"{path.name}.zst.{os.getpid()}.tmp")
+            try:
+                with path.open("rb") as src, tmp.open("wb") as dst:
+                    cctx.copy_stream(src, dst)
+                # the plain file is the only copy until proven otherwise: read the compressed
+                # copy back and compare content hashes before deleting anything
+                if _sha256(path, compressed=False) != _sha256(tmp, compressed=True):
+                    tmp.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                # the other process finished this file first; nothing left to do
+                tmp.unlink(missing_ok=True)
                 continue
-            tmp.replace(path.with_name(path.name + ".zst"))
-            path.unlink()
+            if final.exists():
+                tmp.unlink(missing_ok=True)
+                continue
+            tmp.replace(final)
+            path.unlink(missing_ok=True)
             n += 1
         return n
 

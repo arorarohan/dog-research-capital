@@ -4,7 +4,9 @@
 #   2. upload raw + normalized to the Drive archive (copy-only; compresses finished plain hours),
 #   3. verify what was uploaded by size and hash,
 #   4. only then prune local raw older than the retention window that Drive confirms.
-# Any failing step stops the cycle (set -e), so nothing is pruned after a failed upload. If the
+# Normalize is best-effort (a failure, e.g. OOM on one hour, must not block raw archival): it warns,
+# the cycle carries on, and the script exits 1 at the very end so systemd shows the failure.
+# Push, verify and prune are fatal (set -e), so nothing is pruned after a failed upload. If the
 # Drive login expired, drc-sync exits 3 with "AUTH EXPIRED" (see docs/sync.md, Re-authorizing).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,8 +18,17 @@ NORM="${DRC_NORM:-data/norm_forward}"
 echo "=== cycle $(date -u +%FT%TZ) host=$DRC_HOST raw=$RAW norm=$NORM"
 # Cap the normalizer's address space (default 9 GB on a 12 GB machine) so a runaway can only
 # fail itself, never take the recorder down with it. Subshell: rclone (Go) must not inherit it.
-(ulimit -v "${DRC_NORMALIZE_VMEM_KB:-9000000}"; uv run drc-normalize --raw "$RAW" --norm "$NORM" --closed-only)
+norm_failed=0
+(ulimit -v "${DRC_NORMALIZE_VMEM_KB:-9000000}" && uv run drc-normalize --raw "$RAW" --norm "$NORM" --closed-only) || {
+  rc=$?
+  echo "WARNING: normalize failed (exit $rc); continuing with raw archival" >&2
+  norm_failed=1
+}
 uv run drc-sync push --what raw,norm
 uv run drc-sync verify --what raw,norm
 uv run drc-sync prune-local --apply
+if [ "$norm_failed" -ne 0 ]; then
+  echo "=== cycle finished with a normalize warning $(date -u +%FT%TZ)" >&2
+  exit 1
+fi
 echo "=== cycle ok $(date -u +%FT%TZ)"
