@@ -40,6 +40,23 @@ class WsSource(ABC):
     def keepalive_message(self) -> str | None:
         return None
 
+    @property
+    def name(self) -> str:
+        """Label for logs; sharded sources add the shard id."""
+        return self.venue
+
+    def event_fields(self) -> dict:
+        """Extra fields on this connection's connect/disconnect/shutdown events."""
+        return {}
+
+    def connect_assets(self) -> list[str] | None:
+        """Symbols the subscription just sent covers, if the connection carries only some of the
+        venue's symbols. Stored on the connect event so the epoch resets only for them."""
+        return None
+
+    async def on_connected(self, ws) -> None:  # noqa: B027 - optional hook
+        """Called once the subscriptions are sent and the connect event is written."""
+
     async def on_tick(self, ws) -> None:  # noqa: B027 - optional hook
         """Called every `tick_interval` seconds on a live connection."""
 
@@ -56,16 +73,20 @@ class WsSource(ABC):
                 ) as ws:
                     for sub in subs:
                         await ws.send(sub if isinstance(sub, str) else orjson.dumps(sub).decode())
-                    writer.event(self.venue, "connect", url=self.url)
-                    log.info("%s connected", self.venue)
+                    fields = self.event_fields()
+                    if (assets := self.connect_assets()) is not None:
+                        fields["assets"] = assets
+                    writer.event(self.venue, "connect", url=self.url, **fields)
+                    log.info("%s connected", self.name)
                     backoff = 1.0
+                    await self.on_connected(ws)
                     await self._pump(ws, writer)
             except asyncio.CancelledError:
-                writer.event(self.venue, "shutdown")
+                writer.event(self.venue, "shutdown", **self.event_fields())
                 raise
             except Exception as e:  # noqa: BLE001 - any failure means reconnect
-                writer.event(self.venue, "disconnect", reason=repr(e))
-                log.warning("%s disconnected: %r; retry in %.0fs", self.venue, e, backoff)
+                writer.event(self.venue, "disconnect", reason=repr(e), **self.event_fields())
+                log.warning("%s disconnected: %r; retry in %.0fs", self.name, e, backoff)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, MAX_BACKOFF)
 

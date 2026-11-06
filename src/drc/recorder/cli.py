@@ -39,6 +39,7 @@ def build_sources(cfg: dict, only: set[str] | None = None) -> list:
                 deadline_max_days=p.get("deadline_max_days"),
                 min_volume=p.get("min_volume", 0.0),
                 max_markets=p.get("max_markets", 400),
+                shard_size=p.get("shard_size", 200),
             )
         )
     if on("kalshi"):
