@@ -190,3 +190,29 @@ def test_only_the_unsorted_channel_is_sorted_and_output_equals_a_global_sort(tmp
     got_b = pl.read_parquet(out_path(norm, "book_events", "kraken", date, hour))
     assert got_t.equals(trades_df) and got_b.equals(book_df)
     assert got_t.height == 3
+
+
+def test_every_normalized_hour_has_parquet_or_an_empty_marker_per_table(tmp_path):
+    """The archive's expiry guard (#27) needs 'no rows' to be distinguishable from 'not run'."""
+    from drc.normalize.pipeline import empty_marker
+
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    _write_raw(raw)  # kraken book + trade rows exist, so both tables have Parquet
+    normalize_all(raw, norm)
+    ((venue, date, hour),) = list_hours_of(raw)
+    for table in ("trades", "book_events"):
+        assert out_path(norm, table, venue, date, hour).exists()
+        assert not empty_marker(norm, table, venue, date, hour).exists()
+    # remove the trade channel's raw: the hour is re-normalized and trades becomes an empty marker
+    for f in raw.rglob("trade/*/*.jsonl"):
+        f.unlink()
+    normalize_all(raw, norm, force=True)
+    assert not out_path(norm, "trades", venue, date, hour).exists()
+    assert empty_marker(norm, "trades", venue, date, hour).exists()
+    assert normalize_all(raw, norm) == {}  # the marker counts as up to date: not redone each cycle
+
+
+def list_hours_of(raw):
+    from drc.normalize.pipeline import list_hours
+
+    return [("kraken", d, h) for d, h in list_hours(raw, "kraken")]
