@@ -1,4 +1,5 @@
 import orjson
+import pytest
 
 from drc.recorder import writer as writer_mod
 from drc.recorder.writer import NS_PER_HOUR, RawWriter, hour_path, read_lines
@@ -155,3 +156,61 @@ def test_compress_closed_never_overwrites_an_existing_zst(tmp_path):
     assert RawWriter(tmp_path).compress_closed() == 0
     assert final.read_bytes() == b"other process's result"
     assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
+
+
+def _write_mix(w):
+    w.write("kraken", "book", '{"a":1}', ts_ns=T0 + 5)
+    w.event("kraken", "connect", ts_ns=T0 + 6, url="x")
+    w.write("kraken", "book", "PONG", ts_ns=T0 + 7)
+    w.write("kraken", "book", '{"a":\n2}', ts_ns=T0 + NS_PER_HOUR + 1)
+    w.flush()
+    w.write("kraken", "trade", '{"b":3}', ts_ns=T0 + NS_PER_HOUR + 2)
+
+
+def _all_files(root):
+    return {
+        p.relative_to(root).as_posix(): list(read_lines(p)) for p in sorted(root.rglob("*.jsonl"))
+    }
+
+
+def test_threaded_writer_output_equals_synchronous_output(tmp_path):
+    sync_w, threaded_w = RawWriter(tmp_path / "a"), RawWriter(tmp_path / "b", threaded=True)
+    for w in (sync_w, threaded_w):
+        _write_mix(w)
+        w.close()
+    assert _all_files(tmp_path / "a") == _all_files(tmp_path / "b")
+    assert len(_all_files(tmp_path / "b")) == 4
+
+
+def test_threaded_writer_stamps_receive_time_on_the_callers_thread(tmp_path, monkeypatch):
+    w = RawWriter(tmp_path, threaded=True)
+    clock = iter([T0 + 10, T0 + 20])
+    monkeypatch.setattr(writer_mod.time, "time_ns", lambda: next(clock))
+    w.write("kraken", "book", '{"a":1}')
+    w.event("kraken", "connect")
+    monkeypatch.undo()
+    w.close()
+    assert [r["t"] for r in read_lines(hour_path(tmp_path, "kraken", "book", T0))] == [T0 + 10]
+    assert [r["t"] for r in read_lines(hour_path(tmp_path, "kraken", "_meta", T0))] == [T0 + 20]
+
+
+def test_threaded_writer_reraises_a_write_failure(tmp_path):
+    (tmp_path / "kraken").write_text("a file where the venue directory should be")
+    w = RawWriter(tmp_path, threaded=True)
+    w.write("kraken", "book", '{"a":1}', ts_ns=T0)
+    with pytest.raises(RuntimeError, match="writer thread failed"):
+        for _ in range(500):
+            w.write("kraken", "book", '{"a":2}', ts_ns=T0 + 1)
+            w._thread.join(timeout=0.01)
+    with pytest.raises(RuntimeError):
+        w.close()
+
+
+def test_threaded_writer_reports_backlog_high_water_mark(tmp_path):
+    w = RawWriter(tmp_path, threaded=True)
+    for i in range(1000):
+        w.write("kraken", "book", '{"a":1}', ts_ns=T0 + i)
+    w.close()
+    assert w.pop_max_backlog() >= 1
+    assert w.pop_max_backlog() == 0
+    assert RawWriter(tmp_path).pop_max_backlog() == 0
