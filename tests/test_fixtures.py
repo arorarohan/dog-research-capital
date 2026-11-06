@@ -33,6 +33,15 @@ def table(norm, name, venue):
     return pl.read_parquet(out_path(norm, name, venue, date, hour))
 
 
+def test_rerunning_normalization_gives_byte_identical_parquet(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    normalize_all(RAW, a)
+    normalize_all(RAW, b, force=True)
+    files = sorted(p.relative_to(a) for p in a.rglob("*.parquet"))
+    assert files and files == sorted(p.relative_to(b) for p in b.rglob("*.parquet"))
+    assert all((a / f).read_bytes() == (b / f).read_bytes() for f in files)
+
+
 def test_every_fixture_field_and_channel_is_declared():
     problems, _ = fields.check([RAW])
     assert [p for p in problems if "undeclared" in p] == []

@@ -44,7 +44,7 @@ FIELD_MAP: dict[tuple[str, str], Fields] = {
         "timestamp": _k("ts_exch of the reset row only"),
         "sequence_num": _d(
             "counter shared by every Coinbase channel on one connection; used by "
-            "`drc.validate.timing` to detect lost messages on raw, but gone after expiry"
+            "`drc.validate.continuity` to detect lost messages on raw, but gone after expiry"
         ),
     },
     ("coinbase", "market_trades"): {
@@ -130,7 +130,9 @@ FIELD_MAP: dict[tuple[str, str], Fields] = {
         "size": _k(),
         "side": _k("already the aggressor side"),
         "timestamp": _k("ts_exch (ms)"),
-        "transaction_hash": _k("trade_id (not unique per fill: one tx can fill several orders)"),
+        "transaction_hash": _k(
+            "trade_id; unique in all 12,108 messages checked, but one chain tx could fill several"
+        ),
         "fee_rate_bps": _d(
             "RISK: per-trade fee rate; '0' on every message seen so far, while fees are charged "
             "per market (Gamma). Fee models use the catalog's fee data instead"

@@ -26,6 +26,10 @@ Status key: done / now / next / later / parked. Dates are absolute.
 - Validation against ground truth (Kraken checksums, crossed-book rate, trade-side check)
 - Backtester + ledger with conservative taker fills; baseline strategies prove costs bite
 - Learning library, gotchas, CLAUDE.md conventions
+- [x] Parser and normalization verification before raw expires (2026-11-06, #20): field accounting,
+      per-hour raw-vs-rows accounting that fails loudly, ground-truth checks per venue, fixtures;
+      results and gaps in `docs/validation.md`. Follow-ups: #35 (Kalshi trades still ~1.3% short),
+      #36 (keep ground-truth fields and tick-size changes in Parquet).
 
 ## Phase 1: Historical data layer (now)
 Goal: years of research data without running anything live.

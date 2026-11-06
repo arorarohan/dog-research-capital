@@ -8,7 +8,7 @@
 - Coinbase and Kraken trade ids are consecutive integers per product. A run of missing ids is
   lost trades; it is "explained" if a recorded reconnect lies between the neighbours, otherwise
   it is unexplained loss. Replay snapshots (sent after subscribing) count as seen.
-Kalshi trade ids are random UUIDs and Polymarket's `transaction_hash` is not per fill, so
+Kalshi trade ids are random UUIDs and Polymarket's `transaction_hash` is not sequential, so
 neither can be checked this way (see docs/validation.md for what covers them).
 """
 

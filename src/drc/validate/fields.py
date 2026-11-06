@@ -91,11 +91,13 @@ def check(raw_roots: list[Path]) -> tuple[list[str], list[str]]:
             for p, c in sorted(seen.items())
             if not _declared(declared, p)
         ]
-        problems += [
-            f"{venue}/{channel}: declared field {p!r} never seen (stale declaration?)"
-            for p in sorted(declared)
-            if p not in seen and not any(s.startswith(p) for s in seen)
+        # a sample need not contain every message kind (the array-form Polymarket snapshot only
+        # comes right after subscribing), so declared-but-unseen fields are a note, not a failure
+        unseen = [
+            p for p in sorted(declared) if p not in seen and not any(s.startswith(p) for s in seen)
         ]
+        if unseen:
+            report.append(f"  note: declared but not in this sample: {', '.join(unseen)}")
     problems += [f"{what}: {c} messages" for what, c in odd.items()]
     return problems, report
 
