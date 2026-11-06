@@ -50,14 +50,15 @@ class Fund:
         return events
 
     # ---- lifecycle --------------------------------------------------------------------
-    def create(self, name: str, charter_hash: str, git_sha: str = "") -> None:
+    def create(self, name: str, charter_hash: str, git_sha: str = "", **preregistered) -> None:
+        """`preregistered` (e.g. the charter's `prediction` / `evaluation` tables) is logged
+        verbatim in `fund_created`, so the prediction sits inside the hash chain from day one."""
         if "fund_created" in self.state.seen_types:
             if self.state.charter_hash != charter_hash:
                 raise ValueError("fund exists with a different charter; changed rules = new fund")
             return
-        self._write(
-            [("fund_created", {"name": name, "charter_hash": charter_hash, "git_sha": git_sha})]
-        )
+        payload = {**preregistered, "name": name, "charter_hash": charter_hash, "git_sha": git_sha}
+        self._write([("fund_created", payload)])
 
     def allocate(self, amount: float, note: str = "") -> None:
         if amount <= 0:

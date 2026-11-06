@@ -506,7 +506,7 @@ def _prediction_block(fv: FundView) -> str:
         )
     diff = None if ed.realized is None or pr is None else ed.realized - pr.edge
     rows = [
-        ["Settled positions (win/lose)", f"{ed.n_positions:,}"],
+        ["Settled positions (win/lose/split)", f"{ed.n_positions:,}"],
         ["Independent events among them", f"{ed.n_events:,}"],
         ["Contracts settled", num(ed.n_contracts, 0)],
         ["Voided (excluded, fees still in PnL)", f"{ed.n_voids:,}"],

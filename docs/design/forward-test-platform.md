@@ -235,6 +235,13 @@ repeatable. It sets the end of the dollar-day integral and the age of marks.
   `sha256(file bytes)` equals the logged `charter_hash`. An edited charter is ignored,
   because a prediction written after launch is not a prediction. Slice 1 should therefore
   log `charter_hash = sha256(file bytes)`.
+- **As integrated (2026-11-06).** `drc-session` logs the charter's `[prediction]` and
+  `[evaluation]` tables verbatim in `fund_created`, so the report reads them from the chain.
+  The report accepts both spellings below and the Slice 1 charter's (`net_per_contract_cents`,
+  `ci95_cents`, sd from `[evaluation] per_contract_sd`). A `split` settlement (Polymarket
+  50/50, pays 0.5) is a decided outcome and counts in the edge sample; only voids are excluded.
+  `tests/test_forward_integration.py` runs several days of real sessions and then `drc-report`
+  on the result, so a field either side renames breaks a test.
 
 Charter format:
 

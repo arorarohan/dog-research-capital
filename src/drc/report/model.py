@@ -92,7 +92,7 @@ class SettlementRow:
     ts: int
     token: str
     event_id: str
-    kind: str  # win | lose | void
+    kind: str  # win | lose | split | void
     value: float
     qty: float
     avg_cost: float
@@ -153,7 +153,8 @@ class Prediction:
 
 @dataclass(frozen=True)
 class EdgeStats:
-    """Realized per-contract net edge on settled (win/lose) positions, with the power note.
+    """Realized per-contract net edge on settled (win/lose/split) positions, with the power note.
+    A split (Polymarket 50/50 resolution, pays 0.5) is a real outcome, so it is in the sample.
 
     Independent unit = distinct real-world event (legs of one event are dependent). Voids are
     excluded from the edge sample (no outcome) but their fees are in PnL.
@@ -232,8 +233,23 @@ class FirmView:
 
 
 # ---- prediction ----------------------------------------------------------------------------
+def _normalize_prediction(d: dict, ev: dict) -> dict:
+    """Accept both charter spellings: dollars (`edge_per_contract`, `ci`, `sd_per_contract`)
+    and the Slice 1 charter's cents (`net_per_contract_cents`, `ci95_cents`, with the sd in
+    `[evaluation] per_contract_sd`)."""
+    d = dict(d or {})
+    if d.get("edge_per_contract") is None and d.get("net_per_contract_cents") is not None:
+        d["edge_per_contract"] = float(d["net_per_contract_cents"]) / 100
+    if not d.get("ci") and d.get("ci95_cents"):
+        d["ci"] = [None if c is None else float(c) / 100 for c in d["ci95_cents"]]
+    if d.get("sd_per_contract") is None and ev.get("per_contract_sd") is not None:
+        d["sd_per_contract"] = ev["per_contract_sd"]
+    return d
+
+
 def _prediction_from(d: dict, ev: dict, source: str) -> Prediction | None:
-    if not d or d.get("edge_per_contract") is None:
+    d = _normalize_prediction(d, ev or {})
+    if d.get("edge_per_contract") is None:
         return None
     ci = d.get("ci") or [None, None]
     sd = d.get("sd_per_contract")
@@ -276,7 +292,7 @@ def load_prediction(
 
 
 def edge_stats(settlements: list[SettlementRow], pred: Prediction | None) -> EdgeStats:
-    decided = [s for s in settlements if s.kind in ("win", "lose")]
+    decided = [s for s in settlements if s.kind in ("win", "lose", "split")]
     n_voids = sum(1 for s in settlements if s.kind == "void")
     n_events = len({s.event_id for s in decided})
     contracts = sum(s.qty for s in decided)

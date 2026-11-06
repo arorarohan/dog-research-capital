@@ -162,7 +162,13 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
     fid = charter.fund_id
     # 1. create + allocate
     if "fund_created" not in fund.state.seen_types:
-        fund.create(charter.name, charter.sha256, git_sha)
+        # the charter's prediction and evaluation go into the log verbatim: drc-report reads
+        # them from there, so the headline (realized minus predicted) is chain-protected
+        fund.create(
+            charter.name, charter.sha256, git_sha,
+            prediction=charter.raw.get("prediction", {}),
+            evaluation=charter.raw.get("evaluation", {}),
+        )  # fmt: skip
         fund.allocate(float(charter["capital"]["initial"]), note="initial allocation")
 
     # 2. missed sessions since the last one
