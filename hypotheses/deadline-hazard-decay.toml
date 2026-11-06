@@ -1,0 +1,21 @@
+id = "deadline-hazard-decay"
+title = "Deadline ('by date') markets decay too slowly or too fast versus the event hazard rate"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 1 (time-decay part): fit an event hazard per market family; compare the
+price path toward the scheduled end with the survival-implied path; buy the side the hazard
+favours. Horizons anchored to the scheduled end, ex-ante universe.
+"""
+rule_frozen = false
+kill_criterion = """
+Pooled gap CI includes 0 in the ran-to-schedule subset after hazard adjustment.
+"""
+notes = """
+The calibration half of study 1 became pm-sched-gap. The general-sched holdout is reserved for
+that hypothesis; this one needs a fresh partition or prospective data.
+"""

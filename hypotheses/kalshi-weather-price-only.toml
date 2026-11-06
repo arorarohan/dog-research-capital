@@ -1,0 +1,60 @@
+id = "kalshi-weather-price-only"
+title = "Kalshi daily-high weather bracket prices alone are exploitable net of costs"
+kind = "edge"
+status = "killed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research-plan.md"
+findings = ["docs/findings/2026-10-23-weather-calibration.md"]
+rule = """
+7 cities, settled brackets closing 2026-08-25 .. 2026-10-22 (2,503 markets, 419 city-days). Primary
+horizons 24h and 12h before close (6h and 2h are checks). Price groups < 15c, 15-85c, > 85c; for
+each, buy Yes and buy No, net of Kalshi's 7% x p(1-p) fee and an assumed 2c half-spread.
+"""
+rule_frozen = true
+kill_criterion = "No primary combination has a CI lower bound above zero net of costs."
+notes = """
+Kill criterion met. Test count: the finding says 18 combinations, but the study code
+(`weather_study`) prints 3 groups x 2 sides x 4 horizons = 24; we record the larger count
+(12 primary at 24h/12h). The forecast-based version is a separate hypothesis
+(kalshi-weather-forecast); the longshot pattern is H2 (kalshi-weather-longshot-no).
+"""
+
+[search]
+unrecorded_looks = 21
+unrecorded_primary = 9
+note = "24 combinations printed, 3 reported with CIs; 9 of the 21 unrecorded are primary (24h/12h)."
+
+[[tests]]
+id = "best-primary-yes-gt85-12h"
+date = 2026-10-23
+role = "primary"
+data = "7 cities, 2026-08-25 .. 10-22, 12h before close, Yes priced > 85c"
+metric = "net cents per contract at 2c half-spread"
+direction = "positive"
+estimate = 0.2
+ci = [-3.9, 3.7]
+result = "fail"
+note = "The best primary combination."
+
+[[tests]]
+id = "no-lt15-24h"
+date = 2026-10-23
+role = "primary"
+data = "24h before close, buy No where Yes < 15c"
+metric = "net cents per contract at 2c half-spread"
+direction = "positive"
+estimate = -0.9
+ci = [-1.7, -0.1]
+result = "fail"
+
+[[tests]]
+id = "no-lt15-12h"
+date = 2026-10-23
+role = "primary"
+data = "12h before close, buy No where Yes < 15c"
+metric = "net cents per contract at 2c half-spread"
+direction = "positive"
+estimate = -1.0
+ci = [-1.5, -0.5]
+result = "fail"

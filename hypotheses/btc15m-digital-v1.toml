@@ -1,0 +1,58 @@
+id = "btc15m-digital-v1"
+title = "A lognormal digital-option model beats Kalshi's 15-minute BTC price net of costs (v1)"
+kind = "edge"
+status = "killed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = ["docs/findings/2026-10-22-first-look.md"]
+rule = """
+Model: lognormal with trailing 60-minute volatility, Binance 1m spot, basis-neutral strike. Trade
+the model's disagreement with the market (6 pre-declared threshold x horizon combinations), net
+of a 0.5c half-spread and Kalshi's fee.
+"""
+rule_frozen = true
+kill_criterion = "No combination positive with a CI excluding zero."
+notes = """
+0 of 6 combinations positive with a CI excluding zero; two significantly negative (-4.7 and
+-6.8c per contract; CIs not written down, so no p-value is derived). Kalshi's price is the
+better forecaster at every horizon. Not evidence that no model works: spot up to a minute stale,
+crude volatility. v2 is btc15m-digital-v2.
+"""
+
+[search]
+unrecorded_looks = 4
+unrecorded_primary = 4
+note = "The other 4 pre-declared combinations, none positive with a CI excluding zero."
+
+[[tests]]
+id = "worst-combo-a"
+date = 2026-10-22
+role = "primary"
+data = "Kalshi KXBTC15M, 2026-10-15 .. 10-21 (69 most recent markets excluded)"
+metric = "net cents per contract"
+direction = "positive"
+estimate = -4.7
+result = "fail"
+note = "Reported as significantly negative; which threshold/horizon was not written down."
+
+[[tests]]
+id = "worst-combo-b"
+date = 2026-10-22
+role = "primary"
+data = "same"
+metric = "net cents per contract"
+direction = "positive"
+estimate = -6.8
+result = "fail"
+note = "Reported as significantly negative."
+
+[[tests]]
+id = "brier-model-vs-market"
+date = 2026-10-22
+role = "diagnostic"
+data = "same"
+metric = "Brier score"
+direction = "either"
+result = "descriptive"
+reported = { market_brier_180s = 0.0990, model_brier_180s = 0.117, market_brier_30s = 0.0147, model_brier_30s = 0.0605 }

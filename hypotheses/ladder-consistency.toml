@@ -1,0 +1,19 @@
+id = "ladder-consistency"
+title = "Strike-ladder / complement consistency violations in Kalshi crypto series"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 8: scan hourly/daily Kalshi crypto ladders for monotonicity and
+complement-sum violations on executable quotes.
+"""
+rule_frozen = false
+kill_criterion = """
+No violation larger than the round-trip cost on synchronized executable quotes.
+"""
+notes = """
+Needs live book data; last-trade samples cannot show executable violations.
+"""

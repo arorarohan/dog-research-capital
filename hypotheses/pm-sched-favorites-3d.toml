@@ -1,0 +1,104 @@
+id = "pm-sched-favorites-3d"
+aliases = ["H1"]
+title = "Polymarket favorites (80-95c) are overpriced 3 days before the scheduled end"
+kind = "edge"
+status = "killed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/findings/2026-10-23-scheduled-calibration.md"
+findings = ["docs/findings/2026-10-23-scheduled-calibration.md"]
+rule = """
+At the 3-day horizon (anchored to the scheduled end), contracts priced 80-95c resolve Yes at least
+3 points less often than their price (gap <= -3 pts) in markets scheduled to end on or after
+2026-02-09. Support: cluster-bootstrap 95% CI entirely below 0 and point estimate <= -3 pts.
+Trade only if it survives: buy No at 1 - p with a half-spread haircut.
+"""
+rule_frozen = true
+kill_criterion = "Holdout CI includes 0 or the point estimate is above -3 pts."
+notes = """
+Found by looking at the discovery tables (6 horizons x 9 price bins x 3 volume tiers), then
+pre-declared and tested on the untouched holdout, where it failed. The finding suggests chance
+among many cells or a post-2026 market change (untested).
+"""
+
+[search]
+unrecorded_looks = 157
+note = """
+Discovery calibration tables: 6 horizons x 9 price bins x 3 volume tiers = 162 cells looked at;
+4 are recorded below and 1 (10-20c at 3d) under pm-sched-gap, leaving 157. The 7d 90-95c (+0.8)
+and 95-100c (+1.5) cells were reported without CIs and are among the unrecorded.
+"""
+
+[[tests]]
+id = "disc-3d-80-90"
+date = 2026-10-23
+role = "exploratory"
+data = "discovery (first ~19,250 markets, scheduled end < 2026-02-09)"
+metric = "gap (win frequency - price), pts"
+direction = "negative"
+estimate = -7.9
+ci = [-12.0, -4.2]
+n = 464
+result = "pass"
+note = "Found by looking; the reason H1 was written."
+
+[[tests]]
+id = "disc-3d-90-95"
+date = 2026-10-23
+role = "exploratory"
+data = "discovery (first ~19,250 markets)"
+metric = "gap, pts"
+direction = "negative"
+estimate = -6.1
+ci = [-10.1, -2.3]
+result = "pass"
+
+[[tests]]
+id = "disc-3d-95-100"
+date = 2026-10-23
+role = "exploratory"
+data = "discovery (first ~19,250 markets)"
+metric = "gap, pts"
+direction = "negative"
+estimate = -2.4
+ci = [-4.2, -0.7]
+result = "pass"
+
+[[tests]]
+id = "disc-7d-80-90"
+date = 2026-10-23
+role = "exploratory"
+data = "discovery (first ~19,250 markets)"
+metric = "gap, pts"
+direction = "negative"
+estimate = -4.5
+ci = [-10.7, 1.0]
+result = "fail"
+
+[[tests]]
+id = "disc-grown-3d-80-95"
+date = 2026-10-23
+role = "secondary"
+data = "discovery grown to 25,705 markets (scheduled end < 2026-02-09)"
+metric = "gap, pts"
+direction = "negative"
+estimate = -7.6
+ci = [-10.3, -4.9]
+n = 1021
+clusters = 861
+result = "pass"
+note = "The data the hypothesis was mined from, plus later-sampled markets: not independent evidence."
+
+[[tests]]
+id = "holdout-3d-80-95"
+date = 2026-10-23
+role = "primary"
+data = "holdout: scheduled end 2026-02-09 .. 2026-09-01, 21,803 markets, not looked at before"
+metric = "gap, pts"
+direction = "negative"
+estimate = -0.8
+ci = [-3.4, 1.7]
+n = 649
+clusters = 577
+result = "fail"
+note = "Kill rule met."

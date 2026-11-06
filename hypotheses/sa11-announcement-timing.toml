@@ -1,0 +1,22 @@
+id = "sa11-announcement-timing"
+aliases = ["SA11"]
+title = "Infer hidden readiness from an actor's choice of announcement timing"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 11: for one repeated actor with an ex-ante opportunity calendar, a passed-up high-value
+opportunity should forecast delay more than a passed-up low-value one; buy No after an
+attractive opportunity is skipped.
+"""
+rule_frozen = false
+kill_criterion = """
+Readiness and publicity strategy cannot be separated, policy changes, or labelling opportunities
+needs hindsight.
+"""
+notes = """
+Memo priority: Speculative.
+"""
