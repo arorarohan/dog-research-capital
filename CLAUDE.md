@@ -72,3 +72,4 @@ add to it whenever we learn something the hard way.
 - `uv run drc-session --fund pm-sched-gap-v1 [--dry-run]` one forward-test session (charter in
   `funds/`, event log `data/ledger/events.sqlite`; real runs need a frozen, committed charter)
 - `uv run drc-report [--ledger PATH] [--out DIR]` fund/firm HTML from the event log (`--sample` demo)
+- `uv run drc-ledger-backup {backup,restore}` ledger to `drc-ledger` repo + Drive (`docs/deploy.md`)

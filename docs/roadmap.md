@@ -98,7 +98,11 @@ construction, web app later. Design: `docs/design/forward-test-platform.md`. A t
         logged, idempotent re-runs, `--dry-run`. Live dry runs: 17 candidates, 1-3 trades/day.
   - [ ] Rohan reviews and freezes `funds/pm-sched-gap-v1.toml` (DRAFT; sizing changed to $12
         tickets because median ask depth is ~$45), then a daily timer on the VM
-  - [ ] Static HTML report (Slice 2 agent)
+  - [x] Static HTML report `drc-report` (PR #34)
+  - [x] Session + report integrated and tested end to end on real session output; daily
+        12:00 UTC timer + `deploy/session-cycle.sh` written (not yet enabled); `drc-ledger-backup`
+        (dated commit to `drc-ledger` + immutable Drive copy, append-only guard, restore drill)
+        (2026-11-06, #11, PR #40, stacked on #33 and #34)
 - [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
       vs realized with the power note
 - [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing

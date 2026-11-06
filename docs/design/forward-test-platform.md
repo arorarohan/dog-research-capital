@@ -93,7 +93,9 @@ transaction. Size: ~4 KB per book, ~20-40 books a day, roughly 50 MB a year; rev
 a `rebuild` command; they are never the source of truth.
 
 **This log is irreplaceable evidence** (unlike market data it cannot be re-downloaded), so it
-needs a backup plan: see open question Q8 in the scoping doc.
+needs a backup plan: see open question Q8 in the scoping doc. Built 2026-11-06 as
+`drc-ledger-backup` (dated commits to `drc-ledger` plus an immutable Drive copy, with a guard
+against tail truncation, which `verify()` alone cannot detect); see `docs/deploy.md`.
 
 ## 4. Firm-level totals ("how much invested, how is each fund doing, total PnL")
 
