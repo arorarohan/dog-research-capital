@@ -1,0 +1,22 @@
+id = "sa10-wrong-model-fingerprint"
+aliases = ["SA10"]
+title = "Detect systematic use of the wrong contract model from its residual fingerprint"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 10: pick one model confusion (e.g. touch priced as terminal) before viewing outcomes;
+require its residual pattern across thresholds and rule variants; fit on one set of markets,
+predict the sign on another.
+"""
+rule_frozen = false
+kill_criterion = """
+The pattern is equally explained by stale quotes, missing path observations, risk compensation,
+or our misspecified dynamics.
+"""
+notes = """
+Memo priority: Next.
+"""

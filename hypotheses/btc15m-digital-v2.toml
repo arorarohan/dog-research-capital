@@ -1,0 +1,19 @@
+id = "btc15m-digital-v2"
+title = "Digital-option model v2 (second-level spot, better volatility) beats Kalshi 15-minute prices"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 9: as btc15m-digital-v1 but with Binance 1s klines, refreshed history and a
+better volatility model; pre-declare thresholds x horizons again.
+"""
+rule_frozen = false
+kill_criterion = """
+No pre-declared combination positive with a CI excluding zero net of costs.
+"""
+notes = """
+Contested market; v1 lost to the market at every horizon.
+"""

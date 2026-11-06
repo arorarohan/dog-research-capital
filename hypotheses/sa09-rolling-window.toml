@@ -1,0 +1,20 @@
+id = "sa09-rolling-window"
+aliases = ["SA9"]
+title = "Price the deterministic observations leaving a rolling settlement window"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 9: for contracts settling on a rolling/cumulative average, compute the exact remaining
+hurdle from confirmed observations and buy the side favoured by deterministic aging.
+"""
+rule_frozen = false
+kill_criterion = """
+No eligible contracts exist, observations revise, or the aging effect is already priced.
+"""
+notes = """
+Memo priority: Cheap scan (rules inventory first).
+"""

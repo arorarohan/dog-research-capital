@@ -1,0 +1,365 @@
+id = "pm-sched-gap"
+aliases = ["scheduled-end gap", "pm-sched-gap-v1"]
+title = "Polymarket contracts priced 5-60c within days of the scheduled end are underpriced"
+kind = "edge"
+status = "testing"
+proposed = 2026-10-23
+updated = 2026-10-25
+origin = "docs/findings/2026-10-23-scheduled-calibration.md"
+findings = [
+    "docs/findings/2026-10-23-scheduled-calibration.md",
+    "docs/findings/2026-10-25-forward-session-1.md",
+]
+rule = """
+Net-of-cost rule (committed before running, 2026-10-25, `scheduled_net_study`): buy Yes on every
+contract priced 5-60c at the horizon (days before the scheduled end) and hold to resolution.
+Cost = the market's own stated fee (rate x (p(1-p))^exponent, 0 where fees are off) plus an
+assumed half-spread. Primary: holdout, 3-day horizon, 1c half-spread; survives only if the 95%
+CI lower bound is above 0. Universe: resolved binary markets, total volume >= $50k, scheduled
+end 2024-01-01 .. 2026-09-01; discovery < 2026-02-09 <= holdout.
+"""
+rule_frozen = true
+kill_criterion = """
+Backtest: holdout 3d net at 1c half-spread has CI lower bound <= 0 (did not happen). Forward
+test (fund pm-sched-gap-v1): the charter's own pre-declared evaluation, judged with depth-aware
+pessimistic fills.
+"""
+notes = """
+Pre-declared primary passed on the holdout. Open threats: spreads/depth in the quiet universe
+(forward session 1: mean half-spread 1.13c, median depth at best ask ~$45 on 91 tokens), the
+hindsight $50k total-volume filter, last trade is not the ask, capacity, and no mechanism
+story. The pooled 5-60c row was the pre-declared headline of the calibration study, but no
+numeric holdout threshold was written, so the holdout pooled rows are recorded as secondary
+(replication), not primary. The net rule was frozen on 2026-10-25, two days AFTER the holdout
+gross gap (+2.8 pts at 3d) had been seen, and net = gross - fee - assumed spread; so the
+'primary' net test is not an independent confirmation, it restates the holdout replication
+under a cost assumption. The genuinely out-of-sample evidence is the holdout pooled rows. Net rows at different half-spreads are the same trades shifted by a
+constant, so they are not independent tests; counting them all inflates m (conservative).
+"""
+
+[search]
+unrecorded_looks = 103
+note = """
+Approximate, counted generously: first-pass discovery pooled rows (6, superseded by the grown
+set), volume-tier checks (3 tiers x 3d/7d x discovery/holdout = 12), net price-band splits
+(4 bands x 3 horizons = 12), fee-free split (1), scheduled-end months (7), the other discovery
+net cells (11), and the holdout calibration bins (9 bins x 6 horizons = 54).
+"""
+
+# --- calibration gap, discovery (grown set: 25,705 markets) ---
+[[tests]]
+id = "disc-pooled-60d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery, scheduled end < 2026-02-09 (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = -2.9
+ci = [-4.4, -1.3]
+result = "fail"
+
+[[tests]]
+id = "disc-pooled-30d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = -1.0
+ci = [-2.5, 0.6]
+result = "fail"
+
+[[tests]]
+id = "disc-pooled-14d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 0.6
+ci = [-0.6, 1.9]
+result = "fail"
+
+[[tests]]
+id = "disc-pooled-7d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 1.7
+ci = [0.9, 2.6]
+result = "pass"
+
+[[tests]]
+id = "disc-pooled-3d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 1.9
+ci = [1.2, 2.6]
+result = "pass"
+
+[[tests]]
+id = "disc-pooled-1d"
+date = 2026-10-23
+role = "secondary"
+data = "discovery (grown set)"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 2.4
+ci = [1.7, 3.1]
+result = "pass"
+
+[[tests]]
+id = "disc-3d-10-20c"
+date = 2026-10-23
+role = "exploratory"
+data = "discovery (first ~19,250 markets)"
+metric = "gap, pts"
+direction = "positive"
+estimate = 4.3
+ci = [2.6, 5.9]
+result = "pass"
+note = "One of the 162 discovery cells (see pm-sched-favorites-3d)."
+
+# --- calibration gap, holdout (21,803 markets, untouched before 2026-10-23) ---
+[[tests]]
+id = "hold-pooled-60d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout, scheduled end 2026-02-09 .. 2026-09-01"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = -0.4
+ci = [-2.4, 1.7]
+result = "fail"
+
+[[tests]]
+id = "hold-pooled-30d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = -1.4
+ci = [-2.7, 0.0]
+result = "fail"
+
+[[tests]]
+id = "hold-pooled-14d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = -0.6
+ci = [-1.6, 0.5]
+result = "fail"
+
+[[tests]]
+id = "hold-pooled-7d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 2.3
+ci = [1.5, 3.0]
+result = "pass"
+
+[[tests]]
+id = "hold-pooled-3d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 2.8
+ci = [2.1, 3.5]
+result = "pass"
+
+[[tests]]
+id = "hold-pooled-1d"
+date = 2026-10-23
+role = "secondary"
+data = "holdout"
+metric = "pooled 5-60c gap, pts"
+direction = "positive"
+estimate = 3.8
+ci = [3.1, 4.5]
+result = "pass"
+
+[[tests]]
+id = "hold-3d-10-20c"
+date = 2026-10-23
+role = "exploratory"
+data = "holdout"
+metric = "gap, pts"
+direction = "positive"
+estimate = 4.7
+ci = [3.1, 6.3]
+result = "pass"
+note = "Priced 14.5%, won 19.3%."
+
+# --- net of fee and half-spread (2026-10-25) ---
+[[tests]]
+id = "net-hold-3d-1c"
+date = 2026-10-25
+role = "primary"
+data = "holdout, 3-day horizon, 1c half-spread, per-market fee"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.2
+ci = [0.5, 1.9]
+n = 9613
+clusters = 4987
+result = "pass"
+note = "The pre-declared primary test. Passed."
+
+[[tests]]
+id = "net-hold-3d-0c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 3d, 0c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 2.2
+ci = [1.5, 2.9]
+result = "pass"
+
+[[tests]]
+id = "net-hold-3d-0.5c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 3d, 0.5c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.7
+ci = [1.0, 2.4]
+result = "pass"
+
+[[tests]]
+id = "net-hold-3d-2c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 3d, 2c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 0.2
+ci = [-0.5, 0.9]
+result = "fail"
+
+[[tests]]
+id = "net-hold-7d-0c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 7d, 0c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.7
+ci = [0.9, 2.5]
+result = "pass"
+
+[[tests]]
+id = "net-hold-7d-0.5c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 7d, 0.5c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.2
+ci = [0.4, 2.0]
+result = "pass"
+
+[[tests]]
+id = "net-hold-7d-1c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 7d, 1c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 0.7
+ci = [-0.1, 1.5]
+result = "fail"
+
+[[tests]]
+id = "net-hold-7d-2c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 7d, 2c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = -0.3
+ci = [-1.1, 0.5]
+result = "fail"
+
+[[tests]]
+id = "net-hold-1d-0c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 1d, 0c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 3.2
+ci = [2.5, 3.9]
+result = "pass"
+
+[[tests]]
+id = "net-hold-1d-0.5c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 1d, 0.5c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 2.7
+ci = [2.0, 3.4]
+result = "pass"
+
+[[tests]]
+id = "net-hold-1d-1c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 1d, 1c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 2.2
+ci = [1.5, 2.9]
+result = "pass"
+
+[[tests]]
+id = "net-hold-1d-2c"
+date = 2026-10-25
+role = "secondary"
+data = "holdout, 1d, 2c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.2
+ci = [0.5, 1.9]
+result = "pass"
+
+[[tests]]
+id = "net-disc-3d-1c"
+date = 2026-10-25
+role = "secondary"
+data = "discovery, 3d, 1c half-spread"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 0.9
+ci = [0.2, 1.6]
+result = "pass"
+
+[[tests]]
+id = "net-hold-3d-1c-fee-bearing"
+date = 2026-10-25
+role = "diagnostic"
+data = "holdout, 3d, 1c half-spread, fee-bearing markets only"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 0.9
+ci = [0.1, 1.6]
+result = "pass"
+reported = { fee_free_net_c = 2.4, band_10_20c_net_c = 3.4, band_20_40c_net_c = 1.9, band_40_60c_net_c = -0.6 }
+note = "Fee-free and price-band numbers were reported without CIs (kept in `reported`)."

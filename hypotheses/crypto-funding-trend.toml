@@ -1,0 +1,20 @@
+id = "crypto-funding-trend"
+title = "Slow crypto: funding carry and trend as a diversifying second book"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 7: perpetual-futures funding carry and slow trend rules on BTC/ETH, daily
+rebalancing, net of fees.
+"""
+rule_frozen = false
+kill_criterion = """
+Net Sharpe after the deflated-Sharpe haircut for the number of rule variants tried is not
+distinguishable from 0.
+"""
+notes = """
+Low novelty; diversifier only. Use multitest.deflated_sharpe_ratio with the variant count.
+"""

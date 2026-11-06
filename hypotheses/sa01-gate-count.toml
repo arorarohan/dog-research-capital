@@ -1,0 +1,23 @@
+id = "sa01-gate-count"
+aliases = ["SA1"]
+title = "Remaining procedural gates change the power of deadline decay"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 1: compile a rule family into a prerequisite-stage graph; with k sequential gates left,
+success probability near the deadline decays like tau^k. Buy No on deadlines with several
+genuinely sequential gates remaining; buy Yes after a bottleneck clears if the crowd
+under-reacts. Discriminating test: gate-count x price interaction, not generic decay.
+"""
+rule_frozen = false
+kill_criterion = """
+Stages overlap, can be waived, or are privately completed; a plausible shortcut dominates the
+tail.
+"""
+notes = """
+Memo priority: Start (with idea 2 attached). First step: 15-20 hand-audited contract cards.
+"""
