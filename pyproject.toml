@@ -21,6 +21,7 @@ drc-backtest = "drc.backtest.cli:main"
 drc-backfill = "drc.backfill.cli:main"
 drc-sync = "drc.sync.cli:main"
 drc-session = "drc.forward.session:main"
+drc-report = "drc.report.cli:main"
 
 [dependency-groups]
 dev = [
