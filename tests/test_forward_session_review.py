@@ -320,6 +320,50 @@ def test_dry_run_is_not_held_to_the_schedule(tmp_path):
     assert r.status == "finished" and r.observed["trade"] == 1
 
 
+# ---- 6. marks are liquidation value: walk the bids, net of the exit taker fee --------------
+
+
+def _fee(q, p, rate=0.07):  # the fixture market's crypto fee schedule, 5-decimal rounding
+    return round(rate * q * p * (1 - p), 5)
+
+
+def test_marks_walk_the_bids_for_the_held_quantity_net_of_exit_fees(frozen, tmp_path):  # noqa: F811
+    clock, venue, log = _env(tmp_path, T0)
+    venue.markets = [market("A", T0)]
+    venue.books = {"A": [clob_book("A", [(0.28, 500)], [(0.30, 400)])]}
+    r1 = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    fill = log.events(types=["fill"])[0].payload
+    assert fill["qty"] == 40.0
+    m1 = log.events(types=["mark"])[-1].payload  # marked on the fill book: deep bid at 0.28
+    assert m1["price"] == pytest.approx((40 * 0.28 - _fee(40, 0.28)) / 40)
+    assert m1["best_bid"] == 0.28 and m1["fee"] == pytest.approx(_fee(40, 0.28))
+    assert r1.nav == pytest.approx(10000 - 40 * 0.30 - fill["fee"] + 40 * m1["price"])
+
+    # next day: only 15 shares are bid (10 @ 0.28, 5 @ 0.20); the other 25 are worth nothing
+    clock.set(T0 + dt.timedelta(days=1))
+    venue.markets = []
+    venue.books = {"A": [clob_book("A", [(0.28, 10), (0.20, 5)], [(0.30, 400)])]}
+    r2 = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    m2 = log.events(types=["mark"])[-1].payload
+    net = 10 * 0.28 + 5 * 0.20 - _fee(10, 0.28) - _fee(5, 0.20)
+    assert m2["price"] == pytest.approx(net / 40)
+    assert m2["legs"] == [[0.28, 10.0], [0.2, 5.0]] and m2["beyond_depth"] == 25.0
+    assert r2.nav == pytest.approx(10000 - 40 * 0.30 - fill["fee"] + net)
+    assert not r2.reconciliation and log.verify().ok
+
+
+def test_a_mark_with_no_book_is_still_zero(frozen, tmp_path):  # noqa: F811
+    clock, venue, log = _env(tmp_path, T0)
+    venue.markets = [market("A", T0)]
+    venue.books = {"A": [clob_book("A", [(0.28, 500)], [(0.30, 400)])]}
+    run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    clock.set(T0 + dt.timedelta(days=1))
+    venue.markets, venue.books = [], {"A": [None]}
+    run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    assert log.events(types=["mark"])[-1].payload == {"token": "A", "price": 0.0,
+                                                      "reason": "no_book"}  # fmt: skip
+
+
 def test_cli_ledger_lock_refuses_a_concurrent_run(tmp_path):
     p = tmp_path / "e.sqlite"
     with sess.ledger_lock(p):

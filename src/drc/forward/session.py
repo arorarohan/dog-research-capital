@@ -7,11 +7,12 @@ A session, in order, inside ONE event-log transaction (all of its events or none
    charter's `max_late_secs` after today's scheduled time logs TODAY as missed and stops; a
    run before it does nothing. The universe window is anchored to the scheduled time;
 3. settle open positions the venue has finally resolved (explicit resolution only);
-4. mark every open position at its best bid (0 if there is no book or no bid);
+4. mark every open position at liquidation value: its quantity walked down the displayed
+   bids, net of the exit taker fee, nothing for shares beyond displayed depth (0 if no book);
 5. enumerate candidate markets, screen them ex ante, fetch each survivor's book, decide;
    every candidate is logged as `market_observed` with its verdict and reason;
 6. wait the charter's latency, re-fetch each trade's book and submit through `Fund.submit`
-   (risk checks, then `SimBroker`); mark new positions at the fill book's bid;
+   (risk checks, then `SimBroker`); mark new positions the same way on the fill book;
 7. drawdown check, reconciliation, `session_finished` with a summary.
 
 Re-running a finished session is a no-op. A crash rolls the whole session back, so a re-run
@@ -36,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from drc.backtest.fees import FeeModel, PolymarketFee, resolve_polymarket_fee
-from drc.forward.broker import SimBroker
+from drc.forward.broker import SimBroker, liquidation_value
 from drc.forward.charter import Charter, CharterError
 from drc.forward.eventlog import EventLog
 from drc.forward.fund import Fund
@@ -279,14 +280,13 @@ def _session_body(
                 fund.settle(tok, r.kind, ts, sid, venue=r.detail)
                 res.settlements.append({"token": tok, "kind": r.kind, "value": r.value})
 
-    # 4. mark the rest at the bid
+    # 4. mark the rest at liquidation value: walk the bids, net of the exit taker fee, using
+    # the fee schedule logged when the position was bought
+    fees.update(_logged_fees(fund, set(fund.state.positions())))
     for tok in sorted(fund.state.positions()):
         raw = md.book(tok)
         _log_book(fund, raw, "mark", sid)
-        b = parse_book(raw)
-        bid = b.best_bid if b else None
-        info = {} if bid is not None else {"reason": "no_book" if b is None else "no_bid"}
-        fund.mark(tok, bid if bid is not None else 0.0, raw.recv_ns, sid, **info)
+        _mark(fund, tok, parse_book(raw), raw.recv_ns, fees, sid)
         res.marks += 1
     fund.check_drawdown(sid)
 
@@ -356,9 +356,7 @@ def _session_body(
                            "status": ex.status, "reason": ex.reason, "filled": ex.qty,
                            "avg_price": ex.avg_price, "fee": ex.fee})  # fmt: skip
         if ex.qty > 0:
-            bid = b.best_bid
-            info = {} if bid is not None else {"reason": "no_bid"}
-            fund.mark(tok, bid if bid is not None else 0.0, raw.recv_ns, sid, **info)
+            _mark(fund, tok, b, raw.recv_ns, fees, sid)
             res.marks += 1
 
     # 7. controls and summary
@@ -373,6 +371,23 @@ def _session_body(
         reconciliation_ok=not res.reconciliation, nav=res.nav, cash=res.cash,
         deployed=res.deployed, status=fund.state.status,
     )  # fmt: skip
+
+
+def _mark(fund: Fund, tok: str, book: BookSnapshot | None, ts: int, fees: dict, sid: str) -> None:
+    qty = fund.state.positions()[tok][0]
+    value, info = liquidation_value(book, qty, fees.get(tok, PolymarketFee()))
+    fund.mark(tok, value, ts, sid, **info)
+
+
+def _logged_fees(fund: Fund, tokens: set[str]) -> dict[str, FeeModel]:
+    """Fee model of each token as resolved when it was traded (from its logged Gamma market);
+    a token with no logged market gets the default rate, never zero."""
+    out: dict[str, FeeModel] = {}
+    for e in fund.log.events(fund_id=fund.fund_id, types=["market_observed"]):
+        p = e.payload
+        if p.get("token") in tokens and p.get("verdict") == "trade" and p.get("market"):
+            out[p["token"]] = resolve_polymarket_fee(p["market"])[0]
+    return out
 
 
 def _log_book(fund: Fund, raw: RawBook, purpose: str, sid: str, **extra) -> None:

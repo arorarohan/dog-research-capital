@@ -95,8 +95,9 @@ class Fund:
 
     # ---- trading ----------------------------------------------------------------------
     def mark(self, token: str, bid_price: float, ts: int, session_id: str = "", **info) -> None:
-        """Record the liquidation value of a position (best bid, never the mid). `info` is
-        extra context kept verbatim (e.g. why a position was marked at 0)."""
+        """Record the liquidation value per share of a position (bids walked net of exit fee,
+        see `broker.liquidation_value`; never the mid). `info` is extra context kept verbatim
+        (the levels walked, or why a position was marked at 0)."""
         self._write([("mark", {**info, "token": token, "price": bid_price}, ts)], session_id)
 
     def submit(
