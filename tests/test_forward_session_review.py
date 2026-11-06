@@ -1,6 +1,7 @@
 """Regression tests for the independent review of PR #33 (drc-session). Each test reproduces
 one confirmed finding; the fakes are shared with test_forward_session.py."""
 
+import datetime as dt
 import re
 import sqlite3
 import threading
@@ -22,7 +23,7 @@ from test_forward_session import (
 from drc.forward import session as sess
 from drc.forward.charter import Charter, CharterError
 from drc.forward.eventlog import EventLog
-from drc.forward.session import run_session
+from drc.forward.session import format_summary, run_session
 
 # ---- 1. latency gate vs a wall clock that steps backwards ----------------------------------
 
@@ -250,6 +251,73 @@ def test_cli_dry_run_refuses_the_live_ledger(frozen, tmp_path, capsys, monkeypat
     rc = sess.main(["--fund", "pm-sched-gap-v1", "--funds-dir", str(funds), "--dry-run",
                     "--ledger", str(tmp_path / "ledger" / "events.sqlite")])  # fmt: skip
     assert rc == 2 and "scratch" in capsys.readouterr().err
+
+
+# ---- 5. lateness is enforced, and the universe window is anchored to the schedule ---------
+
+
+def _env(tmp_path, t):
+    clock = Clock(t)
+    venue = FakeVenue(clock)
+    log = EventLog(tmp_path / "e.sqlite", clock=clock)
+    return clock, venue, log
+
+
+def test_a_run_later_than_the_tolerance_is_logged_missed_not_run(frozen, tmp_path):  # noqa: F811
+    clock, venue, log = _env(tmp_path, T0 + dt.timedelta(hours=3))
+    standard_day(venue, T0)
+    r = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    assert r.status == "missed"
+    assert not [c for c in venue.calls if c[0] == "candidates"]  # never looked at the market
+    (m,) = log.events(types=["session_missed"])
+    assert m.session_id == "pm-sched-gap-v1:2026-11-06" and m.payload["date"] == "2026-11-06"
+    assert "late" in m.payload["reason"] and m.payload["late_secs"] == 3 * 3600
+    assert m.payload["max_late_secs"] == 7200
+    assert log.events(types=["session_started", "market_observed"]) == []
+    # a re-run the same day is a no-op, and the next on-time day does not re-log the miss
+    assert run_session(frozen, log, venue, clock=clock, sleep=clock.sleep).status == "missed"
+    clock.set(T0 + dt.timedelta(days=1))
+    r2 = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    assert r2.status == "finished" and r2.missed == []
+    assert len(log.events(types=["session_missed"])) == 1 and log.verify().ok
+
+
+def test_late_tolerance_comes_from_the_charter(tmp_path):
+    funds = _frozen_funds_dir(
+        tmp_path, lambda t: t.replace("max_late_secs = 7200", "max_late_secs = 600")
+    )
+    c = Charter.load(funds / "pm-sched-gap-v1.toml")
+    clock, venue, log = _env(tmp_path, T0 + dt.timedelta(minutes=15))
+    assert run_session(c, log, venue, clock=clock, sleep=clock.sleep).status == "missed"
+
+
+def test_a_catch_up_run_uses_the_scheduled_window_not_now(frozen, tmp_path):  # noqa: F811
+    late = T0 + dt.timedelta(minutes=90)  # within the 2 h tolerance
+    clock, venue, log = _env(tmp_path, late)
+    venue.markets = [market("A", T0, hours=61)]  # 61 h after 12:00, only 59.5 h after now
+    venue.books = {"A": [clob_book("A", [(0.28, 500)], [(0.30, 400)])]}
+    r = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    assert r.status == "finished" and r.observed == {"trade": 1}
+    (_, end_min, end_max, _) = [c for c in venue.calls if c[0] == "candidates"][0]
+    assert end_min == T0 + dt.timedelta(hours=60) and end_max == T0 + dt.timedelta(hours=84)
+    p = log.events(types=["session_started"])[0].payload
+    assert p["late_secs"] == 90 * 60 and p["anchor_utc"] == T0.isoformat()
+
+
+def test_a_run_before_the_scheduled_time_does_nothing(frozen, tmp_path):  # noqa: F811
+    clock, venue, log = _env(tmp_path, T0 - dt.timedelta(hours=9))  # 03:00, e.g. a boot catch-up
+    standard_day(venue, T0)
+    r = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+    assert r.status == "too_early" and log.events() == [] and venue.calls == []
+    assert "too early" in format_summary(r)
+
+
+def test_dry_run_is_not_held_to_the_schedule(tmp_path):
+    clock, venue, log = _env(tmp_path, T0 - dt.timedelta(hours=9))
+    standard_day(venue, T0)
+    r = run_session(Charter.load(CHARTER), log, venue, clock=clock, sleep=clock.sleep,
+                    dry_run=True)  # fmt: skip
+    assert r.status == "finished" and r.observed["trade"] == 1
 
 
 def test_cli_ledger_lock_refuses_a_concurrent_run(tmp_path):

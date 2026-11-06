@@ -3,7 +3,9 @@
 A session, in order, inside ONE event-log transaction (all of its events or none):
 1. create the fund from its charter on first run (charter hash + git sha) and allocate capital;
 2. log every scheduled day since the last session that has no session as `session_missed`
-   (never backfilled: a missed day's markets are simply not traded);
+   (never backfilled: a missed day's markets are simply not traded); a run more than the
+   charter's `max_late_secs` after today's scheduled time logs TODAY as missed and stops; a
+   run before it does nothing. The universe window is anchored to the scheduled time;
 3. settle open positions the venue has finally resolved (explicit resolution only);
 4. mark every open position at its best bid (0 if there is no book or no bid);
 5. enumerate candidate markets, screen them ex ante, fetch each survivor's book, decide;
@@ -56,6 +58,8 @@ DEFAULT_LEDGER = Path("data/ledger/events.sqlite")
 DEFAULT_FUNDS = Path("funds")
 WALL_MARGIN_NS = 500_000_000  # wait this far past decision + latency on the wall clock
 MAX_WALL_WAIT_SECS = 30.0  # cap on that extra wait (a big clock step must not hang a session)
+DEFAULT_MAX_LATE_SECS = 7200  # charter [schedule] max_late_secs when absent
+EARLY_SLACK_SECS = 60  # a run up to this far before the scheduled time still counts
 
 
 class _DryRun(Exception):
@@ -80,8 +84,9 @@ def code_fingerprint(root: Path = _SRC) -> str:
 class SessionResult:
     fund_id: str
     session_id: str
-    status: str  # finished | already_ran
+    status: str  # finished | already_ran | missed (too late, logged) | too_early (nothing done)
     dry_run: bool = False
+    note: str = ""
     missed: list[str] = field(default_factory=list)
     observed: Counter = field(default_factory=Counter)  # reason ("trade" for trades) -> count
     orders: list[dict] = field(default_factory=list)
@@ -107,6 +112,11 @@ def _from_ns(ns: int) -> dt.datetime:
 
 def session_id_for(fund_id: str, day: dt.date) -> str:
     return f"{fund_id}:{day.isoformat()}"
+
+
+def scheduled_time(charter: Charter, day: dt.date) -> dt.datetime:
+    hh, mm = (int(x) for x in charter["schedule"].get("time_utc", "00:00").split(":"))
+    return dt.datetime.combine(day, dt.time(hh, mm), dt.UTC)
 
 
 def _book_payload(raw: RawBook, purpose: str) -> dict:
@@ -149,6 +159,22 @@ def run_session(
     sid = session_id_for(fid, today)
     res = SessionResult(fid, sid, "finished", dry_run)
 
+    # Timing. The session belongs to today's scheduled time: before it nothing happens (a boot
+    # catch-up at 03:00 must not run today's session early); more than max_late_secs after it
+    # the day is logged as missed. In between, the universe window is anchored to the
+    # scheduled time, not to now, so a late run covers exactly the markets an on-time run
+    # would have and consecutive days tile without gaps. Dry runs are not held to the clock.
+    scheduled = scheduled_time(charter, today)
+    late = round((now - scheduled).total_seconds())
+    max_late = int(charter["schedule"].get("max_late_secs", DEFAULT_MAX_LATE_SECS))
+    on_time = -EARLY_SLACK_SECS <= late <= max_late
+    if late < -EARLY_SLACK_SECS and not dry_run:
+        res.status = "too_early"
+        res.note = f"too early: scheduled at {scheduled.isoformat()}, nothing done"
+        return res
+    timing = {"scheduled": scheduled, "anchor": scheduled if on_time else now, "late": late,
+              "max_late": max_late, "missed": late > max_late and not dry_run}  # fmt: skip
+
     fees: dict[str, FeeModel] = {}
     try:
         # BEGIN IMMEDIATE takes the ledger's write lock FIRST; the fund state and the "already
@@ -169,9 +195,12 @@ def run_session(
                     f"--dry-run against a ledger that holds live fund {fid} is not allowed; "
                     "dry-run on a scratch ledger (--ledger /tmp/scratch.sqlite) instead"
                 )
-            done = {e.session_id for e in log_.events(fund_id=fid, types=["session_finished"])}
-            if sid in done:
-                res.status = "already_ran"
+            closed = {
+                e.session_id: e.type
+                for e in log_.events(fund_id=fid, types=["session_finished", "session_missed"])
+            }
+            if sid in closed:
+                res.status = "already_ran" if closed[sid] == "session_finished" else "missed"
                 _fill_totals(res, fund)
                 return res
             if fund.state.charter_hash and fund.state.charter_hash != charter.sha256:
@@ -182,7 +211,7 @@ def run_session(
             prov = {"git_sha": git_sha, "forward_tree_sha": code_tree,
                     "code_sha256": code_fingerprint()}  # fmt: skip
             _session_body(
-                charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, prov
+                charter, fund, md, res, timing, today, sid, clock, sleep, monotonic, fees, prov
             )
             if dry_run:
                 raise _DryRun
@@ -192,7 +221,7 @@ def run_session(
 
 
 def _session_body(
-    charter, fund, md, res, now, today, sid, clock, sleep, monotonic, fees, prov
+    charter, fund, md, res, timing, today, sid, clock, sleep, monotonic, fees, prov
 ) -> None:
     fid = charter.fund_id
     # 1. create + allocate
@@ -217,12 +246,23 @@ def _session_body(
             res.missed.append(d.isoformat())
             d += dt.timedelta(days=1)
 
-    sched = charter["schedule"].get("time_utc", "00:00")
-    hh, mm = (int(x) for x in sched.split(":"))
-    scheduled = dt.datetime.combine(today, dt.time(hh, mm), dt.UTC)
+    scheduled, anchor = timing["scheduled"], timing["anchor"]
+    if timing["missed"]:
+        # too late to count as today's session: logged as missed, nothing else happens
+        fund.miss_session(
+            sid, f"late: ran {timing['late']}s after the scheduled {scheduled.isoformat()}, "
+            f"over the charter's max_late_secs {timing['max_late']}",
+            date=today.isoformat(), scheduled_utc=scheduled.isoformat(),
+            late_secs=timing["late"], max_late_secs=timing["max_late"], **prov,
+        )  # fmt: skip
+        res.missed.append(today.isoformat())
+        res.status = "missed"
+        _fill_totals(res, fund)
+        return
     fund.begin_session(
         sid, date=today.isoformat(), scheduled_utc=scheduled.isoformat(),
-        late_secs=round((now - scheduled).total_seconds()), charter_hash=charter.sha256,
+        anchor_utc=anchor.isoformat(), late_secs=timing["late"],
+        max_late_secs=timing["max_late"], charter_hash=charter.sha256,
         dry_run=res.dry_run, **prov,
     )  # fmt: skip
 
@@ -252,13 +292,14 @@ def _session_body(
 
     # 5. enumerate, screen, decide
     uni, entry, sizing = charter["universe"], charter["entry"], charter["sizing"]
-    end_min = now + dt.timedelta(hours=uni["min_hours_to_end"])
-    end_max = now + dt.timedelta(hours=uni["max_hours_to_end"])
+    # window and hours_to_end are measured from the anchor (the scheduled time), see run_session
+    end_min = anchor + dt.timedelta(hours=uni["min_hours_to_end"])
+    end_max = anchor + dt.timedelta(hours=uni["max_hours_to_end"])
     markets = md.candidates(end_min, end_max, float(uni["min_volume_to_date"]))
     traded = _traded_tokens(fund)
     trades: list[tuple] = []  # (token, event id, Decision, decision BookSnapshot)
     for m in markets:
-        s = screen(m, uni, now, traded)
+        s = screen(m, uni, anchor, traded)
         brief = _market_brief(m)
         common = {"market": brief, "token": s.token, "event_id": s.event_id,
                   "hours_to_end": s.hours_to_end, "volume_to_date": s.volume}  # fmt: skip
@@ -382,6 +423,14 @@ def format_summary(r: SessionResult) -> str:
     ]
     if r.status == "already_ran":
         lines.append("  this session already finished; nothing to do (sessions are idempotent)")
+    if r.status == "too_early":
+        lines.append(f"  {r.note}")
+        return "\n".join(lines)
+    if r.status == "missed":
+        lines.append(
+            "  ran later than the charter's max_late_secs: today is logged as session_missed "
+            "(no trading; positions settle and mark at the next session)"
+        )
     if r.missed:
         lines.append(f"  missed sessions logged: {', '.join(r.missed)}")
     if r.observed:
@@ -515,7 +564,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  event log chain: {'verified' if ok else 'BROKEN'}")
         if not ok:
             return 1
-    return 1 if res.reconciliation else 0
+    # a late (missed) day is logged, but it is an operational failure: exit non-zero so the
+    # daily job shows up as failed
+    return 1 if res.reconciliation or res.status == "missed" else 0
 
 
 def _run_cli_session(charter: Charter, args: argparse.Namespace) -> SessionResult:

@@ -69,6 +69,9 @@ initial = 10000.0              # from the notional $100k firm treasury (Q9)
 [schedule]
 cadence = "daily"
 time_utc = "12:00"             # one session per UTC day; a day with no session is logged as missed
+max_late_secs = 7200           # a run more than 2 h after time_utc is logged as missed, not run;
+                               # a run before time_utc does nothing. The universe window is
+                               # anchored to time_utc, so on-time and catch-up runs tile the days
 
 [prediction]
 # Written before the first trade. Headline forward number = realized minus predicted.
