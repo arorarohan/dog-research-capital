@@ -55,6 +55,7 @@ add to it whenever we learn something the hard way.
 - `src/drc/market/` order book, replay to top-of-book, 1s bars
 - `src/drc/backtest/` ledger, engine, fee models, baseline strategies (see `docs/backtester.md`)
 - `src/drc/validate/` ground-truth checks on our data and reconstruction
+- `src/drc/forward/` forward-test event log, SimBroker, funds; `src/drc/report/` static HTML reports
 - `docs/workflow.md` team git/PR/issue rules; `docs/onboarding.md` new-contributor setup
 - `.claude/` shared Claude Code settings and hooks (`settings.json`, `hooks/guard_main.py`)
 - `config/` TOML configs (what to record, retention)
@@ -66,3 +67,4 @@ add to it whenever we learn something the hard way.
 - `uv run drc-record --config config/recorder.toml` run the recorder
 - `uv run drc-backtest --venue V --symbol S --strategy {hold,random,imbalance}` run a baseline
 - `uv run drc-normalize` raw -> Parquet; `uv run drc-bars` Parquet -> 1s bars (`data/norm/bars_1s/`)
+- `uv run drc-report [--ledger PATH] [--out DIR]` fund/firm HTML from the event log (`--sample` demo)
