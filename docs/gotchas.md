@@ -108,3 +108,4 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   Run `ruff check` and `ruff format --check` too (CI does).
 - `ruff format` rewraps code, so scripted string-replace edits of formatted files can silently
   miss. Check that an edit applied before committing.
+- **Recorder disk caps can delete data nobody has backed up.** `max_total_gb` prunes the oldest days of channels that have a retention rule, with no idea whether they were uploaded. Polymarket `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before relying on it.
