@@ -347,7 +347,10 @@ def check_gaps(p: Probe, t: Target, th: Thresholds, now: float, ctx: dict) -> Ch
             continue
         bits = [f"{s['disconnects']} gaps"]
         if s["disconnects"] or s["restarts"]:
-            bits.append(f"longest {s['gap_secs_max']:.0f}s, total {s['gap_secs_total']:.0f}s")
+            # downtime includes restarts (shutdown until reconnect), not only the gaps
+            bits.append(
+                f"downtime longest {s['gap_secs_max']:.0f}s, total {s['gap_secs_total']:.0f}s"
+            )
         for k, label in (
             ("restarts", "restarts"),
             ("poll_errors", "poll errors"),
