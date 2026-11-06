@@ -113,8 +113,10 @@ def run(
     hour_files = [p for p in hour_files if not p.parent.parent.name.startswith("_")]
     if not hour_files:
         where = f"{arc.host}/{root}/{venue} {date} {hour:02d}:00"
-        print(f"nothing pulled: no raw for {where} on the archive (expired, or never recorded?). "
-              f"Work dir: {work}", file=sys.stderr)  # fmt: skip
+        print(f"nothing pulled: no raw for {where} on the archive (expired, or never recorded?)",
+              file=sys.stderr)  # fmt: skip
+        if into is None:
+            shutil.rmtree(work)
         return 1
     n_raw, b_raw = _size(hour_files)
     n_meta, b_meta = _size((raw / venue / "_meta").rglob("*"))
