@@ -9,7 +9,8 @@ A table with no rows for an hour has no Parquet file; instead an empty marker
 `.parquet` or `.empty`; neither means normalization has not (successfully) run for that hour.
 `drc-sync expire-remote` relies on this to never delete raw whose Parquet does not exist (#27).
 
-`epoch` is the receive-timestamp (ns) of the latest `connect` event at or before a message. It
+`epoch` is the receive-timestamp (ns) of the latest `connect` event at or before a message that
+covers the row's symbol (see `Epochs`: venue-wide, or per symbol for sharded connections). It
 changes whenever the recorder reconnects, so it is a hard resync boundary for book replay and
 never needs to be recomputed when new data arrives.
 """
@@ -39,11 +40,55 @@ CHANNEL_ORDER = {key: i for i, key in enumerate(PARSERS)}
 PARQUET_ZSTD_LEVEL = 19
 
 
-def connect_times(raw_root: Path, venue: str) -> list[int]:
-    out: list[int] = []
+class Epochs:
+    """The epoch of each symbol at any receive time.
+
+    A `connect` event without `assets` (every venue except sharded Polymarket, and all data
+    recorded before #23) starts a new epoch for the whole venue. A `connect` or `subscribe` event
+    with `assets` starts one only for those symbols: Polymarket runs several connections, and one
+    of them reconnecting must not reset books streamed on the others. A symbol's epoch is the
+    latest event at or before the message that covers it.
+    """
+
+    def __init__(self, venue_wide: list[int], scoped: dict[str, list[int]] | None = None) -> None:
+        self.venue_wide = sorted(venue_wide)
+        self.scoped = {s: sorted(ts) for s, ts in (scoped or {}).items()}
+        self._cache: dict[str, tuple[int, int, int]] = {}  # symbol -> (valid from, until, epoch)
+
+    @staticmethod
+    def _latest(times: list[int], ts: int) -> tuple[int, int]:
+        """(latest time <= ts or 0, next time > ts or +inf as a huge int)."""
+        i = bisect.bisect_right(times, ts)
+        return (times[i - 1] if i else 0), (times[i] if i < len(times) else 1 << 62)
+
+    def at(self, symbol: str, ts: int) -> int:
+        hit = self._cache.get(symbol)
+        if hit is not None and hit[0] <= ts < hit[1]:
+            return hit[2]
+        epoch, until = self._latest(self.venue_wide, ts)
+        lo = epoch
+        if (own := self.scoped.get(symbol)) is not None:
+            e, u = self._latest(own, ts)
+            epoch, lo, until = max(epoch, e), max(lo, e), min(until, u)
+        self._cache[symbol] = (lo, until, epoch)
+        return epoch
+
+
+def load_epochs(raw_root: Path, venue: str) -> Epochs:
+    venue_wide: list[int] = []
+    scoped: dict[str, list[int]] = {}
     for p in sorted((raw_root / venue / META_CHANNEL).rglob("*.jsonl*")):
-        out += [r["t"] for r in read_lines(p) if r.get("ev") == "connect"]
-    return sorted(out)
+        for r in read_lines(p):
+            if r.get("ev") not in ("connect", "subscribe"):
+                continue
+            assets = r.get("assets")
+            if assets is None:
+                if r["ev"] == "connect":
+                    venue_wide.append(r["t"])
+            else:
+                for a in assets:
+                    scoped.setdefault(a, []).append(r["t"])
+    return Epochs(venue_wide, scoped)
 
 
 def _hour_files(raw_root: Path, venue: str, date: str, hour: int) -> dict[str, Path]:
@@ -142,14 +187,15 @@ class _Table:
         return pl.concat(self.frames, rechunk=False)
 
 
-def _build(records, venue: str, connects: list[int]) -> tuple[pl.DataFrame, pl.DataFrame]:
+def _build(records, venue: str, epochs: Epochs) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Parse receive-ordered records into the `trades` and `book_events` frames."""
     trades, book = _Table(TRADES_SCHEMA, CHUNK_ROWS), _Table(BOOK_EVENTS_SCHEMA, CHUNK_ROWS)
     msg_id = 0
+    per_symbol = bool(epochs.scoped)
     for ts_recv, _, _, channel, msg in records:
         table, parse = PARSERS[(venue, channel)]
-        i = bisect.bisect_right(connects, ts_recv)
-        epoch = connects[i - 1] if i else 0
+        if not per_symbol:
+            epoch = epochs.at("", ts_recv)
         try:
             rows = list(parse(msg))
         except (KeyError, ValueError, TypeError) as e:
@@ -174,7 +220,7 @@ def _build(records, venue: str, connects: list[int]) -> tuple[pl.DataFrame, pl.D
                 cols["size"].append(row.size)
             cols["venue"].append(venue)
             cols["symbol"].append(row.symbol)
-            cols["epoch"].append(epoch)
+            cols["epoch"].append(epochs.at(row.symbol, ts_recv) if per_symbol else epoch)
             cols["ts_recv"].append(ts_recv)
             cols["ts_exch"].append(row.ts_exch)
         trades.maybe_flush()
@@ -196,7 +242,7 @@ def normalize_hour(
     ):
         return {}
 
-    connects = connect_times(raw_root, venue)
+    epochs = load_epochs(raw_root, venue)
     # Each channel file is normally in receive-time order, so a k-way merge yields the same global
     # order as sorting everything while holding one record per channel. A file that is not (Kalshi
     # books carry explicit times) is materialised and sorted on its own; the others stay lazy.
@@ -211,7 +257,7 @@ def normalize_hour(
                     streams.append(iter(records))
                 else:
                     streams.append(_channel_stream(venue, ch, p, strict=True))
-            trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, connects)
+            trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, epochs)
             break
         except _Unsorted as e:
             in_memory.add(e.channel)

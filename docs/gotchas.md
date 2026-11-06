@@ -52,6 +52,20 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   tables): the same hour peaks at 3.5 GB. Two traps remain: Kalshi orderbook files are NOT in
   receive-time order (explicit timestamps), so those hours take the full-sort fallback; and
   `ulimit -v` breaks Go programs (rclone), so cap only the Python step.
+- **Polymarket closes a websocket it cannot send to fast enough** (close code 1013 "slow consumer:
+  send buffer full"). With ~800 tokens on one connection the VM got ~18 a day (166 between
+  2026-10-28 and 11-06), bunched at 00-03 UTC (busiest trading) and at :00-:10 and :30-:40 past
+  the hour (twice the other windows): the hourly compression of a ~5 GB price_change hour on the
+  VM's slow disk, and the hourly market refresh. Our CPU was ~5% and the socket receive queue
+  empty when quiet, so it is bursts, not average load. Fix (#23): raw writes run on a writer
+  thread so a disk stall cannot stop the socket reader, and tokens are spread over connections
+  of at most `shard_size` (200). Watch `max writer backlog` in the maintenance log line.
+- **Epochs are per symbol, not per venue.** Each Polymarket shard's `connect` event lists its
+  `assets`, and tokens added to a live shard get a `subscribe` event; a symbol's epoch is the
+  latest such event covering it (a `connect` without `assets` still covers the whole venue). So
+  replay must reset books per (venue, symbol) on an epoch change, never the whole venue, or one
+  shard's reconnect would wipe books on shards that never dropped and that will not resend a
+  snapshot. Data recorded before #23 normalizes and replays identically under either rule.
 
 ## Books on near-resolved markets
 - **Locked books are not replay bugs.** Polymarket tokens of near-resolved markets sit at 99.8c /

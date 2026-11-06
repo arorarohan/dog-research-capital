@@ -17,6 +17,8 @@ from drc.recorder.writer import RawWriter
 
 log = logging.getLogger("drc.recorder")
 
+COMPRESS_MIN_IDLE_SECS = 60.0
+
 
 def build_sources(cfg: dict, only: set[str] | None = None) -> list:
     def on(name: str) -> bool:
@@ -37,6 +39,7 @@ def build_sources(cfg: dict, only: set[str] | None = None) -> list:
                 deadline_max_days=p.get("deadline_max_days"),
                 min_volume=p.get("min_volume", 0.0),
                 max_markets=p.get("max_markets", 400),
+                shard_size=p.get("shard_size", 200),
             )
         )
     if on("kalshi"):
@@ -64,17 +67,23 @@ async def maintenance(writer: RawWriter, cfg: dict) -> None:
         writer.flush()
         if loop.time() - last >= every:
             last = loop.time()
-            n = await asyncio.to_thread(writer.compress_closed)
+            # the idle guard covers writes still queued for an hour that just ended
+            n = await asyncio.to_thread(writer.compress_closed, COMPRESS_MIN_IDLE_SECS)
             removed = await asyncio.to_thread(
                 apply_retention, writer.root, rules, rec.get("max_total_gb")
             )
-            if n or removed:
-                log.info("maintenance: compressed %d files, pruned %d day dirs", n, len(removed))
+            backlog = writer.pop_max_backlog()
+            log.info(
+                "maintenance: compressed %d files, pruned %d day dirs, max writer backlog %d",
+                n,
+                len(removed),
+                backlog,
+            )
         await asyncio.sleep(flush_secs)
 
 
 async def run(cfg: dict, only: set[str] | None) -> None:
-    writer = RawWriter(Path(cfg.get("recorder", {}).get("data_dir", "data/raw")))
+    writer = RawWriter(Path(cfg.get("recorder", {}).get("data_dir", "data/raw")), threaded=True)
     sources = build_sources(cfg, only)
     if not sources:
         raise SystemExit("no sources enabled")

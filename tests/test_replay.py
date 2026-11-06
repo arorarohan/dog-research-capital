@@ -72,3 +72,26 @@ def test_depth_limited_venue_is_trimmed_to_subscribed_depth():
     assert tops.row(-1, named=True)["bid_depth"] == 2.0  # only 10.0 and 9.0 remain
     tops, _ = replay_tops(ev, max_levels={})
     assert tops.row(-1, named=True)["bid_depth"] == 3.0
+
+
+def test_one_shards_reconnect_keeps_the_other_shards_books():
+    """Per-symbol epochs (sharded Polymarket): A's epoch moves, B's does not."""
+    rows = [
+        # symbol, epoch, ts, msg_id, kind, side, price, size
+        ("A", 1, 100, 1, "reset", None, None, None),
+        ("A", 1, 100, 1, "snapshot", "bid", 0.4, 1.0),
+        ("B", 2, 110, 2, "reset", None, None, None),
+        ("B", 2, 110, 2, "snapshot", "bid", 0.6, 1.0),
+        ("A", 5, 200, 3, "update", "bid", 0.41, 1.0),  # A reconnected, not resynced: dropped
+        ("B", 2, 210, 4, "update", "ask", 0.7, 1.0),  # B's book is intact
+        ("A", 5, 300, 5, "reset", None, None, None),
+        ("A", 5, 300, 5, "snapshot", "ask", 0.5, 1.0),
+    ]
+    full = [("v", r[0]) + r[1:4] + (None,) + r[4:] for r in rows]
+    ev = pl.DataFrame(full, schema=BOOK_EVENTS_SCHEMA, orient="row").select(COLS)
+    tops, stats = replay_tops(ev)
+    assert stats.dropped_unsynced == 1
+    b = tops.filter(pl.col("symbol") == "B").row(-1, named=True)
+    assert (b["epoch"], b["bid"], b["ask"]) == (2, 0.6, 0.7)
+    a = tops.filter(pl.col("symbol") == "A").row(-1, named=True)
+    assert (a["epoch"], a["bid"], a["ask"]) == (5, None, 0.5)
