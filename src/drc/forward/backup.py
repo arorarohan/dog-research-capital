@@ -51,7 +51,9 @@ DEFAULT_REMOTE = "gdrive:drc"
 COLUMNS = ("seq", "ts_event", "ts_recorded", "fund_id", "session_id", "type", "payload",
            "prev_hash", "hash")  # fmt: skip
 JSONL, MANIFEST = "events.jsonl", "manifest.json"
-REPO_GITIGNORE = "# the live database; the repo keeps the text export\n*.sqlite\n*.sqlite-*\n"
+REPO_GITIGNORE = (
+    "# the live database; the repo keeps the text export\n*.sqlite\n*.sqlite-*\n*.sqlite.lock\n"
+)
 DEFAULT_PUSH = "git push origin HEAD:main"
 
 Runner = Callable[..., subprocess.CompletedProcess]

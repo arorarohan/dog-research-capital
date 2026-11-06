@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS events (
     hash        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_fund ON events (fund_id, seq);
+-- at most one fund_created per fund and one start/finish/miss per session: a second,
+-- overlapping session run fails loudly here even if every other guard missed it
+CREATE UNIQUE INDEX IF NOT EXISTS events_one_fund ON events (fund_id)
+    WHERE type = 'fund_created';
+CREATE UNIQUE INDEX IF NOT EXISTS events_one_session ON events (fund_id, session_id, type)
+    WHERE type IN ('session_started', 'session_finished', 'session_missed');
 CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
 BEGIN SELECT RAISE(ABORT, 'event log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events

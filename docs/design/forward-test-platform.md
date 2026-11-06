@@ -149,10 +149,30 @@ until Rohan freezes it; `drc-session` refuses real runs on a draft. Draft choice
 deadline mode); $12 tickets capped at 25% of displayed depth at the decision ask (Q9's $50-100
 would routinely exceed the cap, median ask depth ~$45); at most $36 per real-world event;
 one buy per token ever. Polymarket has no void: a market that resolves 50/50 settles as
-`split` at 0.5. A position with no book or no bid is marked at 0. Minimum detectable edge for
+`split` at 0.5. Marks are liquidation value: the held quantity walked down the displayed bids,
+net of the exit taker fee, with nothing for shares beyond displayed depth; a position with no
+book or no bid is marked at 0. Minimum detectable edge for
 the planned 540 fills (90 days at ~6 a day) is ~5.6c against a predicted 1.2c, so the edge
 verdict will be "inconclusive" for a long time; costs and fill rates are what the first months
 judge (Q11).
+
+**Review hardening (PR #33 review, 2026-11-06).** A real run refuses uncommitted changes under
+`src/`, `funds/`, `pyproject.toml` or `uv.lock`, and `session_started` logs a hash of the session
+code (`code_sha256`) and the git tree of `src/drc/forward`, so the freeze covers code, not just
+the TOML. Charter fields that the code implements one way only (venue, side, limit,
+once_per_token, log_out_of_band, exit rule, cadence, binary-only) must state that value or the
+session refuses. The fund state is read under the ledger's write lock, the ledger allows one
+`fund_created` per fund and one start/finish/miss per session, and the CLI holds a file lock,
+so overlapping runs cannot double-allocate. `--dry-run` is refused on a ledger holding the fund.
+Runs more than `[schedule] max_late_secs` (2 h) late log the day as `session_missed`; the
+universe window is anchored to the scheduled time. The latency wait also checks the wall clock.
+
+**Known limitation (not fixed): a crash rolls back fills.** The whole session is one
+transaction, so a crash after simulated fills discards them and a re-run trades on later books.
+A live broker would keep those fills, so a crashed-and-rerun day is not what live trading would
+have produced. Accepted for now because it is rare and the re-run uses genuinely later books;
+the fix would be to commit each fill in its own transaction and make the re-run resume. See
+`docs/gotchas.md` ("Forward-test sessions").
 
 ## 6. Build plan
 
@@ -196,7 +216,8 @@ Exit codes:
 repeatable. It sets the end of the dollar-day integral and the age of marks.
 
 **Rules the report enforces.**
-- **Liquidation value only.** Open positions are valued at the last `mark` (the best bid).
+- **Liquidation value only.** Open positions are valued at the last `mark` (bids walked
+  for the held quantity, net of the exit taker fee).
   The mid appears only in per-fill spread cost and the cost attribution built from it. No
   headline number is mid-marked.
 - **No guessing.** An open position without a mark makes NAV/PnL `n/a`, labels the firm

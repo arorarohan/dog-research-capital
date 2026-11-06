@@ -49,6 +49,35 @@ def _on_tick(price: float, tick: float) -> bool:
     return abs(price / tick - round(price / tick)) < 1e-6
 
 
+def liquidation_value(
+    book: BookSnapshot | None, qty: float, fee_model: FeeModel
+) -> tuple[float, dict]:
+    """Per-share value of selling `qty` long shares now into the DISPLAYED bids, best first,
+    net of the taker fee on each level (design doc section 4: liquidation value net of fees).
+    Shares beyond the displayed bid depth are worth nothing. Returns (value per share, info);
+    info is logged verbatim with the mark."""
+    if book is None:
+        return 0.0, {"reason": "no_book"}
+    if not book.bids:
+        return 0.0, {"reason": "no_bid"}
+    if qty <= 0:
+        return 0.0, {"reason": "no_position"}
+    left, gross, fee, legs = qty, 0.0, 0.0, []
+    for lv in book.bids:  # best (highest) first
+        take = min(left, lv.size)
+        gross += take * lv.price
+        fee += fee_model.fee(take, lv.price)
+        legs.append([lv.price, take])
+        left = round(left - take, 8)
+        if left <= _EPS:
+            break
+    beyond = max(left, 0.0)
+    info = {"basis": "bid_walk_net_of_taker_fee", "best_bid": book.bids[0].price,
+            "qty": qty, "gross": round(gross, 8), "fee": round(fee, 8), "legs": legs,
+            "beyond_depth": beyond}  # fmt: skip
+    return (gross - fee) / qty, info
+
+
 class SimBroker:
     def __init__(self, config: BrokerConfig | None = None):
         self.cfg = config or BrokerConfig()

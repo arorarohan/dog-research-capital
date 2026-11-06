@@ -175,13 +175,16 @@ def test_first_session_trades_logs_every_candidate_and_reconciles(frozen, env):
     assert purposes.count("decision") == 4 and purposes.count("fill") == 1
     raw = log.events(types=["book_snapshot"])[0].payload
     assert raw["raw"]["asks"][-1]["price"] == "0.3"  # stored verbatim, venue order
-    assert log.events(types=["mark"])[-1].payload == {"token": "A", "price": 0.28}
+    # marked at liquidation value: 40 shares into the 0.28 bid, minus the 7% exit taker fee
+    exit_fee = round(0.07 * 40 * 0.28 * 0.72, 5)
+    mark = log.events(types=["mark"])[-1].payload
+    assert mark["token"] == "A" and mark["price"] == pytest.approx(0.28 - exit_fee / 40)
 
     t = types(log)
     assert t[:3] == ["fund_created", "capital_allocated", "session_started"]
     assert t[-2:] == ["reconciliation", "session_finished"]
     assert log.verify().ok
-    assert r.nav == pytest.approx(10000 - 40 * 0.30 - fill["fee"] + 40 * 0.28)
+    assert r.nav == pytest.approx(10000 - 40 * 0.30 - fill["fee"] + 40 * 0.28 - exit_fee)
     assert "trade 1" in format_summary(r) and "reconciliation: ok" in format_summary(r)
 
 
@@ -253,7 +256,9 @@ def test_missed_days_are_logged_never_backfilled_and_tokens_are_bought_once(froz
     assert len(log.events(types=["fill"])) == 1
     # the open position was marked at the new bid before anything else
     marks = log.events(types=["mark"], session_id="pm-sched-gap-v1:2026-11-09")
-    assert marks[0].payload == {"token": "A", "price": 0.25}
+    exit_fee = round(0.07 * 40 * 0.25 * 0.75, 5)
+    assert marks[0].payload["token"] == "A" and marks[0].payload["best_bid"] == 0.25
+    assert marks[0].payload["price"] == pytest.approx(0.25 - exit_fee / 40)
 
 
 def test_settles_resolved_positions_and_marks_unresolved_closed_ones_at_zero(frozen, env):

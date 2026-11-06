@@ -3,35 +3,42 @@
 A session, in order, inside ONE event-log transaction (all of its events or none):
 1. create the fund from its charter on first run (charter hash + git sha) and allocate capital;
 2. log every scheduled day since the last session that has no session as `session_missed`
-   (never backfilled: a missed day's markets are simply not traded);
+   (never backfilled: a missed day's markets are simply not traded); a run more than the
+   charter's `max_late_secs` after today's scheduled time logs TODAY as missed and stops; a
+   run before it does nothing. The universe window is anchored to the scheduled time;
 3. settle open positions the venue has finally resolved (explicit resolution only);
-4. mark every open position at its best bid (0 if there is no book or no bid);
+4. mark every open position at liquidation value: its quantity walked down the displayed
+   bids, net of the exit taker fee, nothing for shares beyond displayed depth (0 if no book);
 5. enumerate candidate markets, screen them ex ante, fetch each survivor's book, decide;
    every candidate is logged as `market_observed` with its verdict and reason;
 6. wait the charter's latency, re-fetch each trade's book and submit through `Fund.submit`
-   (risk checks, then `SimBroker`); mark new positions at the fill book's bid;
+   (risk checks, then `SimBroker`); mark new positions the same way on the fill book;
 7. drawdown check, reconciliation, `session_finished` with a summary.
 
 Re-running a finished session is a no-op. A crash rolls the whole session back, so a re-run
-starts clean. `--dry-run` runs everything, prints the summary, then rolls back.
+starts clean. `--dry-run` runs everything, prints the summary, then rolls back; it is refused
+on a ledger that already holds the fund (no untraced peeks at a live fund's next trades).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
+import fcntl
+import hashlib
 import logging
 import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from drc.backtest.fees import FeeModel, PolymarketFee, resolve_polymarket_fee
-from drc.forward.broker import SimBroker
-from drc.forward.charter import Charter
+from drc.forward.broker import SimBroker, liquidation_value
+from drc.forward.charter import Charter, CharterError
 from drc.forward.eventlog import EventLog
 from drc.forward.fund import Fund
 from drc.forward.polymarket import (
@@ -50,22 +57,37 @@ log = logging.getLogger(__name__)
 
 DEFAULT_LEDGER = Path("data/ledger/events.sqlite")
 DEFAULT_FUNDS = Path("funds")
+WALL_MARGIN_NS = 500_000_000  # wait this far past decision + latency on the wall clock
+MAX_WALL_WAIT_SECS = 30.0  # cap on that extra wait (a big clock step must not hang a session)
+DEFAULT_MAX_LATE_SECS = 7200  # charter [schedule] max_late_secs when absent
+EARLY_SLACK_SECS = 60  # a run up to this far before the scheduled time still counts
 
 
 class _DryRun(Exception):
     pass
 
 
-class CharterError(Exception):
-    pass
+# The code a session runs; its hash goes into every session_started, so a report can show
+# exactly which sessions ran on which code (the charter hash alone pins only the rules file).
+_SRC = Path(__file__).resolve().parent.parent  # src/drc
+CODE_FILES = ("forward/*.py", "backtest/fees.py", "backtest/ledger.py")
+
+
+def code_fingerprint(root: Path = _SRC) -> str:
+    """SHA-256 over (relative path, bytes) of the session's code, as imported."""
+    h = hashlib.sha256()
+    for f in sorted({p for pat in CODE_FILES for p in root.glob(pat)}):
+        h.update(f.relative_to(root).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
 
 
 @dataclass
 class SessionResult:
     fund_id: str
     session_id: str
-    status: str  # finished | already_ran
+    status: str  # finished | already_ran | missed (too late, logged) | too_early (nothing done)
     dry_run: bool = False
+    note: str = ""
     missed: list[str] = field(default_factory=list)
     observed: Counter = field(default_factory=Counter)  # reason ("trade" for trades) -> count
     orders: list[dict] = field(default_factory=list)
@@ -93,6 +115,11 @@ def session_id_for(fund_id: str, day: dt.date) -> str:
     return f"{fund_id}:{day.isoformat()}"
 
 
+def scheduled_time(charter: Charter, day: dt.date) -> dt.datetime:
+    hh, mm = (int(x) for x in charter["schedule"].get("time_utc", "00:00").split(":"))
+    return dt.datetime.combine(day, dt.time(hh, mm), dt.UTC)
+
+
 def _book_payload(raw: RawBook, purpose: str) -> dict:
     """Venue response verbatim plus our receive time; kept inline so the hash chain covers it."""
     return {"token": raw.token, "purpose": purpose, "http_status": raw.status,
@@ -113,9 +140,14 @@ def run_session(
     *,
     clock: Callable[[], int] = time.time_ns,
     sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], int] = time.monotonic_ns,
     dry_run: bool = False,
     git_sha: str = "",
+    code_tree: str = "",
 ) -> SessionResult:
+    """`code_tree`: git tree sha of src/drc/forward at HEAD (the CLI refuses a real run with
+    uncommitted code, so it describes what runs); logged with our own `code_fingerprint`."""
+    charter.validate()
     if not charter.frozen and not dry_run:
         raise CharterError(
             f"{charter.path} is status={charter.status!r}: review and freeze it before a real "
@@ -128,29 +160,60 @@ def run_session(
     sid = session_id_for(fid, today)
     res = SessionResult(fid, sid, "finished", dry_run)
 
-    fees: dict[str, FeeModel] = {}
-    fund = Fund(
-        log_,
-        fid,
-        SimBroker(charter.broker_config()),
-        charter.risk_limits(),
-        lambda tok: fees.get(tok, PolymarketFee()),
-        clock=clock,
-    )
-    done = {e.session_id for e in log_.events(fund_id=fid, types=["session_finished"])}
-    if sid in done:
-        res.status = "already_ran"
-        _fill_totals(res, fund)
+    # Timing. The session belongs to today's scheduled time: before it nothing happens (a boot
+    # catch-up at 03:00 must not run today's session early); more than max_late_secs after it
+    # the day is logged as missed. In between, the universe window is anchored to the
+    # scheduled time, not to now, so a late run covers exactly the markets an on-time run
+    # would have and consecutive days tile without gaps. Dry runs are not held to the clock.
+    scheduled = scheduled_time(charter, today)
+    late = round((now - scheduled).total_seconds())
+    max_late = int(charter["schedule"].get("max_late_secs", DEFAULT_MAX_LATE_SECS))
+    on_time = -EARLY_SLACK_SECS <= late <= max_late
+    if late < -EARLY_SLACK_SECS and not dry_run:
+        res.status = "too_early"
+        res.note = f"too early: scheduled at {scheduled.isoformat()}, nothing done"
         return res
-    if fund.state.charter_hash and fund.state.charter_hash != charter.sha256:
-        raise CharterError(
-            f"fund {fid} was created under charter {fund.state.charter_hash[:12]}, this file "
-            f"hashes to {charter.sha256[:12]}: changed rules need a new fund id"
-        )
+    timing = {"scheduled": scheduled, "anchor": scheduled if on_time else now, "late": late,
+              "max_late": max_late, "missed": late > max_late and not dry_run}  # fmt: skip
 
+    fees: dict[str, FeeModel] = {}
     try:
+        # BEGIN IMMEDIATE takes the ledger's write lock FIRST; the fund state and the "already
+        # ran" check are read under it, so an overlapping run waits, then sees this one's
+        # finished session instead of acting on a stale view (no double create/allocate).
         with log_.transaction():
-            _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, git_sha)
+            fund = Fund(
+                log_,
+                fid,
+                SimBroker(charter.broker_config()),
+                charter.risk_limits(),
+                lambda tok: fees.get(tok, PolymarketFee()),
+                clock=clock,
+            )
+            if dry_run and "fund_created" in fund.state.seen_types:
+                # a dry run on a live fund's ledger would show today's trades with no trace
+                raise CharterError(
+                    f"--dry-run against a ledger that holds live fund {fid} is not allowed; "
+                    "dry-run on a scratch ledger (--ledger /tmp/scratch.sqlite) instead"
+                )
+            closed = {
+                e.session_id: e.type
+                for e in log_.events(fund_id=fid, types=["session_finished", "session_missed"])
+            }
+            if sid in closed:
+                res.status = "already_ran" if closed[sid] == "session_finished" else "missed"
+                _fill_totals(res, fund)
+                return res
+            if fund.state.charter_hash and fund.state.charter_hash != charter.sha256:
+                raise CharterError(
+                    f"fund {fid} was created under charter {fund.state.charter_hash[:12]}, this "
+                    f"file hashes to {charter.sha256[:12]}: changed rules need a new fund id"
+                )
+            prov = {"git_sha": git_sha, "forward_tree_sha": code_tree,
+                    "code_sha256": code_fingerprint()}  # fmt: skip
+            _session_body(
+                charter, fund, md, res, timing, today, sid, clock, sleep, monotonic, fees, prov
+            )
             if dry_run:
                 raise _DryRun
     except _DryRun:
@@ -158,14 +221,16 @@ def run_session(
     return res
 
 
-def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, git_sha) -> None:
+def _session_body(
+    charter, fund, md, res, timing, today, sid, clock, sleep, monotonic, fees, prov
+) -> None:
     fid = charter.fund_id
     # 1. create + allocate
     if "fund_created" not in fund.state.seen_types:
         # the charter's prediction and evaluation go into the log verbatim: drc-report reads
         # them from there, so the headline (realized minus predicted) is chain-protected
         fund.create(
-            charter.name, charter.sha256, git_sha,
+            charter.name, charter.sha256, prov["git_sha"],
             prediction=charter.raw.get("prediction", {}),
             evaluation=charter.raw.get("evaluation", {}),
         )  # fmt: skip
@@ -188,13 +253,24 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
             res.missed.append(d.isoformat())
             d += dt.timedelta(days=1)
 
-    sched = charter["schedule"].get("time_utc", "00:00")
-    hh, mm = (int(x) for x in sched.split(":"))
-    scheduled = dt.datetime.combine(today, dt.time(hh, mm), dt.UTC)
+    scheduled, anchor = timing["scheduled"], timing["anchor"]
+    if timing["missed"]:
+        # too late to count as today's session: logged as missed, nothing else happens
+        fund.miss_session(
+            sid, f"late: ran {timing['late']}s after the scheduled {scheduled.isoformat()}, "
+            f"over the charter's max_late_secs {timing['max_late']}",
+            date=today.isoformat(), scheduled_utc=scheduled.isoformat(),
+            late_secs=timing["late"], max_late_secs=timing["max_late"], **prov,
+        )  # fmt: skip
+        res.missed.append(today.isoformat())
+        res.status = "missed"
+        _fill_totals(res, fund)
+        return
     fund.begin_session(
         sid, date=today.isoformat(), scheduled_utc=scheduled.isoformat(),
-        late_secs=round((now - scheduled).total_seconds()), charter_hash=charter.sha256,
-        git_sha=git_sha, dry_run=res.dry_run,
+        anchor_utc=anchor.isoformat(), late_secs=timing["late"],
+        max_late_secs=timing["max_late"], charter_hash=charter.sha256,
+        dry_run=res.dry_run, **prov,
     )  # fmt: skip
 
     # 3. settle resolved positions
@@ -210,26 +286,26 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
                 fund.settle(tok, r.kind, ts, sid, venue=r.detail)
                 res.settlements.append({"token": tok, "kind": r.kind, "value": r.value})
 
-    # 4. mark the rest at the bid
+    # 4. mark the rest at liquidation value: walk the bids, net of the exit taker fee, using
+    # the fee schedule logged when the position was bought
+    fees.update(_logged_fees(fund, set(fund.state.positions())))
     for tok in sorted(fund.state.positions()):
         raw = md.book(tok)
         _log_book(fund, raw, "mark", sid)
-        b = parse_book(raw)
-        bid = b.best_bid if b else None
-        info = {} if bid is not None else {"reason": "no_book" if b is None else "no_bid"}
-        fund.mark(tok, bid if bid is not None else 0.0, raw.recv_ns, sid, **info)
+        _mark(fund, tok, parse_book(raw), raw.recv_ns, fees, sid)
         res.marks += 1
     fund.check_drawdown(sid)
 
     # 5. enumerate, screen, decide
     uni, entry, sizing = charter["universe"], charter["entry"], charter["sizing"]
-    end_min = now + dt.timedelta(hours=uni["min_hours_to_end"])
-    end_max = now + dt.timedelta(hours=uni["max_hours_to_end"])
+    # window and hours_to_end are measured from the anchor (the scheduled time), see run_session
+    end_min = anchor + dt.timedelta(hours=uni["min_hours_to_end"])
+    end_max = anchor + dt.timedelta(hours=uni["max_hours_to_end"])
     markets = md.candidates(end_min, end_max, float(uni["min_volume_to_date"]))
     traded = _traded_tokens(fund)
     trades: list[tuple] = []  # (token, event id, Decision, decision BookSnapshot)
     for m in markets:
-        s = screen(m, uni, now, traded)
+        s = screen(m, uni, anchor, traded)
         brief = _market_brief(m)
         common = {"market": brief, "token": s.token, "event_id": s.event_id,
                   "hours_to_end": s.hours_to_end, "volume_to_date": s.volume}  # fmt: skip
@@ -255,13 +331,27 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
             trades.append((s.token, s.event_id, d, db))
             traded.add(s.token)
 
-    # 6. latency, fresh book, submit
+    # 6. latency, fresh book, submit. The sleep runs on the monotonic clock, but the broker's
+    # gate compares wall-clock times (book.ts vs decision_ts), and the wall clock can step
+    # backwards (docs/gotchas.md). So also wait until the WALL clock has passed decision +
+    # latency (+ a margin), capped; both clocks are logged with the fill book.
+    latency_ns = charter.broker_config().latency_ns
+    mono0 = monotonic()
     if trades:
-        sleep(charter.broker_config().latency_ns / 1e9)
+        sleep(latency_ns / 1e9)
     for tok, ev, d, db in trades:
         decision_ns = db.ts
+        target = decision_ns + latency_ns + WALL_MARGIN_NS
+        wall_now, ready, waits = _await_wall(target, clock, sleep, MAX_WALL_WAIT_SECS)
+        wait_info = {"decision_ns": decision_ns, "target_ns": target, "wall_ready_ns": wall_now,
+                     "wall_ready": ready, "wall_waits": waits,
+                     "mono_waited_ns": monotonic() - mono0}  # fmt: skip
+        if not ready:
+            log.warning("wall clock still %.1fs short of the latency target after %ss; "
+                        "fetching anyway (broker will judge)", (target - wall_now) / 1e9,
+                        MAX_WALL_WAIT_SECS)  # fmt: skip
         raw = md.book(tok)
-        _log_book(fund, raw, "fill", sid)
+        _log_book(fund, raw, "fill", sid, latency_wait=wait_info)
         # no book now (404): an empty book with the decision book's tick, so the broker
         # rejects it as one-sided rather than for an irrelevant reason
         b = parse_book(raw) or BookSnapshot(tok, raw.recv_ns, (), (), db.tick, db.min_size)
@@ -272,9 +362,7 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
                            "status": ex.status, "reason": ex.reason, "filled": ex.qty,
                            "avg_price": ex.avg_price, "fee": ex.fee})  # fmt: skip
         if ex.qty > 0:
-            bid = b.best_bid
-            info = {} if bid is not None else {"reason": "no_bid"}
-            fund.mark(tok, bid if bid is not None else 0.0, raw.recv_ns, sid, **info)
+            _mark(fund, tok, b, raw.recv_ns, fees, sid)
             res.marks += 1
 
     # 7. controls and summary
@@ -291,8 +379,44 @@ def _session_body(charter, fund, md, res, now, today, sid, clock, sleep, fees, g
     )  # fmt: skip
 
 
-def _log_book(fund: Fund, raw: RawBook, purpose: str, sid: str) -> None:
-    fund.observe("book_snapshot", _book_payload(raw, purpose), sid, raw.recv_ns)
+def _mark(fund: Fund, tok: str, book: BookSnapshot | None, ts: int, fees: dict, sid: str) -> None:
+    qty = fund.state.positions()[tok][0]
+    value, info = liquidation_value(book, qty, fees.get(tok, PolymarketFee()))
+    fund.mark(tok, value, ts, sid, **info)
+
+
+def _logged_fees(fund: Fund, tokens: set[str]) -> dict[str, FeeModel]:
+    """Fee model of each token as resolved when it was traded (from its logged Gamma market);
+    a token with no logged market gets the default rate, never zero."""
+    out: dict[str, FeeModel] = {}
+    for e in fund.log.events(fund_id=fund.fund_id, types=["market_observed"]):
+        p = e.payload
+        if p.get("token") in tokens and p.get("verdict") == "trade" and p.get("market"):
+            out[p["token"]] = resolve_polymarket_fee(p["market"])[0]
+    return out
+
+
+def _log_book(fund: Fund, raw: RawBook, purpose: str, sid: str, **extra) -> None:
+    fund.observe("book_snapshot", {**_book_payload(raw, purpose), **extra}, sid, raw.recv_ns)
+
+
+def _await_wall(
+    target_ns: int, clock: Callable[[], int], sleep: Callable[[float], None], max_secs: float
+) -> tuple[int, bool, int]:
+    """Sleep until the wall clock reads >= target_ns, for at most `max_secs` of requested
+    sleep in total (a clock stepped back by hours must not hang the session). Returns
+    (wall clock at return, reached?, number of sleeps)."""
+    waited, n = 0.0, 0
+    while True:
+        now = clock()
+        if now >= target_ns:
+            return now, True, n
+        if waited >= max_secs - 1e-9:
+            return now, False, n
+        step = min((target_ns - now) / 1e9, max_secs - waited)
+        sleep(step)
+        waited += step
+        n += 1
 
 
 def _traded_tokens(fund: Fund) -> set[str]:
@@ -320,6 +444,14 @@ def format_summary(r: SessionResult) -> str:
     ]
     if r.status == "already_ran":
         lines.append("  this session already finished; nothing to do (sessions are idempotent)")
+    if r.status == "too_early":
+        lines.append(f"  {r.note}")
+        return "\n".join(lines)
+    if r.status == "missed":
+        lines.append(
+            "  ran later than the charter's max_late_secs: today is logged as session_missed "
+            "(no trading; positions settle and mark at the next session)"
+        )
     if r.missed:
         lines.append(f"  missed sessions logged: {', '.join(r.missed)}")
     if r.observed:
@@ -370,10 +502,46 @@ def check_committed(path: Path) -> str | None:
     return None
 
 
+class LedgerBusy(Exception):
+    pass
+
+
+@contextlib.contextmanager
+def ledger_lock(ledger: Path) -> Iterator[None]:
+    """Exclusive, non-blocking lock on `<ledger>.lock` for one drc-session process. The ledger
+    transaction already serializes sessions; this makes a second concurrent run fail at once
+    with a clear message instead of waiting on (or timing out against) SQLite's lock."""
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with open(ledger.with_name(ledger.name + ".lock"), "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as e:
+            raise LedgerBusy(f"another drc-session is running on {ledger}") from e
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+# what a frozen fund's behaviour depends on: its code, charters, and the locked dependencies
+FROZEN_PATHS = (":(top)src", ":(top)funds", ":(top)pyproject.toml", ":(top)uv.lock")
+
+
+def dirty_paths(git: Callable[..., str] | None = None) -> list[str]:
+    """`git status --porcelain` lines (modified, staged or untracked) under FROZEN_PATHS."""
+    out = (git or _git)("status", "--porcelain", "--", *FROZEN_PATHS)
+    return [ln for ln in out.splitlines() if ln.strip()]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="drc-session", description=__doc__.splitlines()[0])
     ap.add_argument("--fund", required=True, help="fund id; reads funds/<fund>.toml")
-    ap.add_argument("--dry-run", action="store_true", help="run everything, write nothing")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run everything, write nothing; refused on a ledger that holds the (live) fund, "
+        "so point --ledger at a scratch path (a missing path means an in-memory ledger)",
+    )
     ap.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
     ap.add_argument("--funds-dir", type=Path, default=DEFAULT_FUNDS)
     args = ap.parse_args(argv)
@@ -391,26 +559,48 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(msg, file=sys.stderr)
             return 2
+        if _git("rev-parse", "--is-inside-work-tree") != "true":
+            print("refusing: not a git checkout, so the code cannot be pinned", file=sys.stderr)
+            return 2
+        if dirty := dirty_paths():
+            print(
+                "refusing: uncommitted changes to code, charters or dependencies; a real session "
+                "must run committed code (commit or stash them, or use --dry-run):\n  "
+                + "\n  ".join(dirty),
+                file=sys.stderr,
+            )
+            return 2
         if problem := check_committed(charter.path):
             print(f"refusing: {problem}", file=sys.stderr)
             return 2
-    ledger = EventLog(args.ledger) if not args.dry_run or args.ledger.exists() else None
-    ledger = ledger or EventLog(":memory:")
     try:
-        sha = _git("rev-parse", "HEAD")
-        res = run_session(charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha)
-    except CharterError as e:
+        with ledger_lock(args.ledger) if not args.dry_run else contextlib.nullcontext():
+            res = _run_cli_session(charter, args)
+    except (CharterError, LedgerBusy) as e:
         print(f"refusing: {e}", file=sys.stderr)
         return 2
-    finally:
-        ledger.close()
     print(format_summary(res))
     if not args.dry_run:
         ok = ledger_ok(args.ledger)
         print(f"  event log chain: {'verified' if ok else 'BROKEN'}")
         if not ok:
             return 1
-    return 1 if res.reconciliation else 0
+    # a late (missed) day is logged, but it is an operational failure: exit non-zero so the
+    # daily job shows up as failed
+    return 1 if res.reconciliation or res.status == "missed" else 0
+
+
+def _run_cli_session(charter: Charter, args: argparse.Namespace) -> SessionResult:
+    ledger = EventLog(args.ledger) if not args.dry_run or args.ledger.exists() else None
+    ledger = ledger or EventLog(":memory:")
+    try:
+        sha = _git("rev-parse", "HEAD")
+        tree = _git("rev-parse", "HEAD:src/drc/forward")
+        return run_session(
+            charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha, code_tree=tree
+        )
+    finally:
+        ledger.close()
 
 
 def ledger_ok(path: Path) -> bool:

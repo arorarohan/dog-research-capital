@@ -1,8 +1,10 @@
 """Report data: everything a fund or firm page shows, derived from the event log only.
 
 Rules this module enforces (docs/design/forward-test-platform.md section 8):
-- Valuation is liquidation value (best bid, from `mark` events). The mid is used for one thing
-  only: attributing how much spread we paid on each fill. No headline number is mid-marked.
+- Valuation is liquidation value (from `mark` events: the position walked down the displayed
+  bids, net of the exit taker fee; `drc.forward.broker.liquidation_value`). The mid is used for
+  one thing only: attributing how much spread we paid on each fill. No headline number is
+  mid-marked.
 - A position without a mark has no value. NAV and PnL are then None, never a guess, and the NAV
   curve has a gap there instead of a line drawn across it.
 - Closed, halted and killed funds stay in the firm totals.
