@@ -19,14 +19,16 @@ starts clean. `--dry-run` runs everything, prints the summary, then rolls back.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import logging
 import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -147,27 +149,29 @@ def run_session(
     res = SessionResult(fid, sid, "finished", dry_run)
 
     fees: dict[str, FeeModel] = {}
-    fund = Fund(
-        log_,
-        fid,
-        SimBroker(charter.broker_config()),
-        charter.risk_limits(),
-        lambda tok: fees.get(tok, PolymarketFee()),
-        clock=clock,
-    )
-    done = {e.session_id for e in log_.events(fund_id=fid, types=["session_finished"])}
-    if sid in done:
-        res.status = "already_ran"
-        _fill_totals(res, fund)
-        return res
-    if fund.state.charter_hash and fund.state.charter_hash != charter.sha256:
-        raise CharterError(
-            f"fund {fid} was created under charter {fund.state.charter_hash[:12]}, this file "
-            f"hashes to {charter.sha256[:12]}: changed rules need a new fund id"
-        )
-
     try:
+        # BEGIN IMMEDIATE takes the ledger's write lock FIRST; the fund state and the "already
+        # ran" check are read under it, so an overlapping run waits, then sees this one's
+        # finished session instead of acting on a stale view (no double create/allocate).
         with log_.transaction():
+            fund = Fund(
+                log_,
+                fid,
+                SimBroker(charter.broker_config()),
+                charter.risk_limits(),
+                lambda tok: fees.get(tok, PolymarketFee()),
+                clock=clock,
+            )
+            done = {e.session_id for e in log_.events(fund_id=fid, types=["session_finished"])}
+            if sid in done:
+                res.status = "already_ran"
+                _fill_totals(res, fund)
+                return res
+            if fund.state.charter_hash and fund.state.charter_hash != charter.sha256:
+                raise CharterError(
+                    f"fund {fid} was created under charter {fund.state.charter_hash[:12]}, this "
+                    f"file hashes to {charter.sha256[:12]}: changed rules need a new fund id"
+                )
             prov = {"git_sha": git_sha, "forward_tree_sha": code_tree,
                     "code_sha256": code_fingerprint()}  # fmt: skip
             _session_body(
@@ -421,6 +425,27 @@ def check_committed(path: Path) -> str | None:
     return None
 
 
+class LedgerBusy(Exception):
+    pass
+
+
+@contextlib.contextmanager
+def ledger_lock(ledger: Path) -> Iterator[None]:
+    """Exclusive, non-blocking lock on `<ledger>.lock` for one drc-session process. The ledger
+    transaction already serializes sessions; this makes a second concurrent run fail at once
+    with a clear message instead of waiting on (or timing out against) SQLite's lock."""
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with open(ledger.with_name(ledger.name + ".lock"), "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as e:
+            raise LedgerBusy(f"another drc-session is running on {ledger}") from e
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 # what a frozen fund's behaviour depends on: its code, charters, and the locked dependencies
 FROZEN_PATHS = (":(top)src", ":(top)funds", ":(top)pyproject.toml", ":(top)uv.lock")
 
@@ -466,19 +491,12 @@ def main(argv: list[str] | None = None) -> int:
         if problem := check_committed(charter.path):
             print(f"refusing: {problem}", file=sys.stderr)
             return 2
-    ledger = EventLog(args.ledger) if not args.dry_run or args.ledger.exists() else None
-    ledger = ledger or EventLog(":memory:")
     try:
-        sha = _git("rev-parse", "HEAD")
-        tree = _git("rev-parse", "HEAD:src/drc/forward")
-        res = run_session(
-            charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha, code_tree=tree
-        )
-    except CharterError as e:
+        with ledger_lock(args.ledger) if not args.dry_run else contextlib.nullcontext():
+            res = _run_cli_session(charter, args)
+    except (CharterError, LedgerBusy) as e:
         print(f"refusing: {e}", file=sys.stderr)
         return 2
-    finally:
-        ledger.close()
     print(format_summary(res))
     if not args.dry_run:
         ok = ledger_ok(args.ledger)
@@ -486,6 +504,19 @@ def main(argv: list[str] | None = None) -> int:
         if not ok:
             return 1
     return 1 if res.reconciliation else 0
+
+
+def _run_cli_session(charter: Charter, args: argparse.Namespace) -> SessionResult:
+    ledger = EventLog(args.ledger) if not args.dry_run or args.ledger.exists() else None
+    ledger = ledger or EventLog(":memory:")
+    try:
+        sha = _git("rev-parse", "HEAD")
+        tree = _git("rev-parse", "HEAD:src/drc/forward")
+        return run_session(
+            charter, ledger, PolymarketHttp(), dry_run=args.dry_run, git_sha=sha, code_tree=tree
+        )
+    finally:
+        ledger.close()
 
 
 def ledger_ok(path: Path) -> bool:

@@ -2,6 +2,9 @@
 one confirmed finding; the fakes are shared with test_forward_session.py."""
 
 import re
+import sqlite3
+import threading
+import time
 
 import pytest
 from test_forward_session import (
@@ -13,6 +16,7 @@ from test_forward_session import (
     clob_book,
     frozen,  # noqa: F401  (pytest fixture)
     market,
+    standard_day,
 )
 
 from drc.forward import session as sess
@@ -157,3 +161,70 @@ def test_unsupported_charter_values_fail_loudly(tmp_path, old, new, field):
 
 def test_the_real_charter_validates():
     assert Charter.load(CHARTER).problems() == []
+
+
+# ---- 3. two overlapping sessions on one ledger --------------------------------------------
+
+
+def test_two_overlapping_sessions_on_one_ledger_do_not_double_allocate(frozen, tmp_path):  # noqa: F811
+    """Session B starts while A sleeps through its latency (A holds the write lock). B must
+    wait, then see A's finished session: one fund, one allocation, one finished session."""
+    path = tmp_path / "e.sqlite"
+    EventLog(path).close()
+    out: dict = {}
+
+    def run_b():
+        clock = Clock()
+        venue = FakeVenue(clock)
+        standard_day(venue, T0)
+        log = EventLog(path, clock=clock)
+        try:
+            out["b"] = run_session(frozen, log, venue, clock=clock, sleep=clock.sleep)
+        except Exception as e:  # noqa: BLE001
+            out["b_error"] = e
+        finally:
+            log.close()
+
+    tb = threading.Thread(target=run_b)
+    clock = Clock()
+    venue = FakeVenue(clock)
+    standard_day(venue, T0)
+
+    def sleep_a(secs):
+        clock.sleep(secs)
+        if not tb.is_alive() and "b" not in out and "b_error" not in out:
+            tb.start()
+            time.sleep(0.5)  # let B get as far as it can while A is mid-session
+
+    log = EventLog(path, clock=clock)
+    a = run_session(frozen, log, venue, clock=clock, sleep=sleep_a)
+    tb.join(timeout=30)
+    assert a.status == "finished"
+    assert "b_error" not in out, out.get("b_error")
+    assert out["b"].status == "already_ran"
+    kinds = ("fund_created", "capital_allocated", "session_started", "session_finished")
+    count = {t: len(log.events(types=[t])) for t in kinds}
+    assert count == dict.fromkeys(kinds, 1)
+    assert log.verify().ok
+
+
+def test_ledger_refuses_a_second_fund_created_or_session_finished(tmp_path):
+    log = EventLog(tmp_path / "e.sqlite")
+    log.append("fund_created", {"charter_hash": "x"}, fund_id="f")
+    with pytest.raises(sqlite3.IntegrityError):
+        log.append("fund_created", {"charter_hash": "x"}, fund_id="f")
+    log.append("session_finished", {}, fund_id="f", session_id="f:1")
+    with pytest.raises(sqlite3.IntegrityError):
+        log.append("session_finished", {}, fund_id="f", session_id="f:1")
+    log.append("session_finished", {}, fund_id="f", session_id="f:2")  # another day is fine
+    assert log.verify().ok
+
+
+def test_cli_ledger_lock_refuses_a_concurrent_run(tmp_path):
+    p = tmp_path / "e.sqlite"
+    with sess.ledger_lock(p):
+        with pytest.raises(sess.LedgerBusy):
+            with sess.ledger_lock(p):
+                pass
+    with sess.ledger_lock(p):  # released
+        pass
