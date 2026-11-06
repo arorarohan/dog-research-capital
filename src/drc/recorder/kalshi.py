@@ -52,8 +52,10 @@ class KalshiPoller:
         series: tuple[str, ...] = (),
         max_rps: float = 5.0,
         max_retries: int = 4,
+        max_retry_wait: float = 60.0,
     ) -> None:
         self.max_retries = max_retries
+        self.max_retry_wait = max_retry_wait
         self._interval = 1.0 / max_rps
         self._next_slot = 0.0  # monotonic time of the next request we may start
         self._now = time.monotonic  # injectable for tests
@@ -91,6 +93,13 @@ class KalshiPoller:
             wait = _retry_after(resp)
             if wait is None:
                 wait = min(30.0, 2.0**attempt)
+            elif wait > self.max_retry_wait:
+                log.warning(
+                    "kalshi Retry-After %.0fs exceeds cap; clamping to %.0fs",
+                    wait,
+                    self.max_retry_wait,
+                )
+                wait = self.max_retry_wait
             wait += random.uniform(0, 0.25 * wait)
             self._next_slot = max(self._next_slot, self._now() + wait)  # everyone waits
             await self._sleep(wait)

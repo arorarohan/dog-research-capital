@@ -155,6 +155,19 @@ async def test_a_429_is_retried_after_retry_after_and_data_is_kept(tmp_path):
     assert any(2.0 <= d <= 2.5 for d in state["sleeps"])  # Retry-After honored, plus small jitter
 
 
+async def test_a_huge_retry_after_is_clamped(tmp_path):
+    w = RawWriter(tmp_path)
+    poller = KalshiPoller(max_retry_wait=60.0)
+    state = _fake_time(poller)
+    client, calls = _throttling_client(failures=1, retry_after="3600")
+    async with client:
+        await poller.poll_book(client, w, "HIGH")
+    w.close()
+    assert calls["n"] == 2
+    assert len(_all(tmp_path, "kalshi", "orderbook")) == 1
+    assert max(state["sleeps"]) <= 60.0 * 1.25
+
+
 async def test_a_429_pauses_every_task_not_just_the_one_that_hit_it():
     poller = KalshiPoller(max_rps=10)
     _fake_time(poller)
