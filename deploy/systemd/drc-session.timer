@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily forward-test session for Dog Research Capital (12:00 UTC)
+
+[Timer]
+# The charter's [schedule] time_utc. The session logs how late it ran (late_secs).
+OnCalendar=*-*-* 12:00:00 UTC
+# If the VM was down at 12:00, run once at boot. A run on a LATER day logs the skipped days as
+# session_missed (never backfilled); a late run on the SAME day is a normal session.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
