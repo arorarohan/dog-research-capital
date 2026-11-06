@@ -4,6 +4,11 @@ Output layout:  <norm>/<table>/venue=<v>/date=<YYYY-MM-DD>/hour=<HH>.parquet
 Tables: `trades`, `book_events` (see rows.py). Re-running an hour overwrites its output, so the
 pipeline is idempotent; an hour is skipped only if its output is newer than every input.
 
+A table with no rows for an hour has no Parquet file; instead an empty marker
+`hour=<HH>.empty` sits at the same path. So every normalized hour has, per table, exactly one of
+`.parquet` or `.empty`; neither means normalization has not (successfully) run for that hour.
+`drc-sync expire-remote` relies on this to never delete raw whose Parquet does not exist (#27).
+
 `epoch` is the receive-timestamp (ns) of the latest `connect` event at or before a message. It
 changes whenever the recorder reconnects, so it is a hard resync boundary for book replay and
 never needs to be recomputed when new data arrives.
@@ -66,6 +71,21 @@ def list_hours(raw_root: Path, venue: str) -> list[tuple[str, int]]:
 
 def out_path(norm_root: Path, table: str, venue: str, date: str, hour: int) -> Path:
     return norm_root / table / f"venue={venue}" / f"date={date}" / f"hour={hour:02d}.parquet"
+
+
+def empty_marker(norm_root: Path, table: str, venue: str, date: str, hour: int) -> Path:
+    return out_path(norm_root, table, venue, date, hour).with_suffix(".empty")
+
+
+def _table_done(norm_root: Path, table: str, venue: str, date: str, hour: int, newest: float):
+    """True if this table's output for the hour (Parquet or empty marker) is newer than the raw."""
+    return any(
+        p.exists() and p.stat().st_mtime >= newest
+        for p in (
+            out_path(norm_root, table, venue, date, hour),
+            empty_marker(norm_root, table, venue, date, hour),
+        )
+    )
 
 
 # Rows are accumulated in Python lists and turned into a polars chunk every CHUNK_ROWS, so peak
@@ -169,9 +189,11 @@ def normalize_hour(
     files = _hour_files(raw_root, venue, date, hour)
     if not files:
         return {}
-    outs = [out_path(norm_root, t, venue, date, hour) for t in ("trades", "book_events")]
     newest_input = max(p.stat().st_mtime for p in files.values())
-    if not force and all(o.exists() and o.stat().st_mtime >= newest_input for o in outs):
+    if not force and all(
+        _table_done(norm_root, t, venue, date, hour, newest_input)
+        for t in ("trades", "book_events")
+    ):
         return {}
 
     connects = connect_times(raw_root, venue)
@@ -206,10 +228,13 @@ def normalize_hour(
     for name, df in (("trades", trades_df), ("book_events", book_df)):
         counts[name] = df.height
         path = out_path(norm_root, name, venue, date, hour)
+        marker = empty_marker(norm_root, name, venue, date, hour)
+        path.parent.mkdir(parents=True, exist_ok=True)
         if df.height == 0:
             path.unlink(missing_ok=True)
+            marker.touch()
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
+        marker.unlink(missing_ok=True)
         tmp = path.with_suffix(".tmp")
         df.write_parquet(tmp, compression="zstd", compression_level=PARQUET_ZSTD_LEVEL)
         tmp.replace(path)
