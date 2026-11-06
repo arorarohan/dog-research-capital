@@ -110,3 +110,83 @@ def test_closed_only_skips_the_hour_still_being_recorded(tmp_path):
     # without the flag the open hour is still processed (existing behaviour)
     norm2 = tmp_path / "norm2"
     assert len(normalize_all(raw, norm2, now=inside)) == 1
+
+
+def _read_all(norm_root):
+    return {
+        p.relative_to(norm_root): pl.read_parquet(p)
+        for p in sorted(norm_root.rglob("hour=*.parquet"))
+    }
+
+
+def test_chunked_output_equals_unchunked_output(tmp_path, monkeypatch):
+    """The memory fix builds tables in bounded chunks; the result must not depend on chunk size."""
+    from drc.normalize import pipeline
+
+    raw = tmp_path / "raw"
+    _write_raw(raw)
+    normalize_all(raw, tmp_path / "big")
+    monkeypatch.setattr(pipeline, "CHUNK_ROWS", 1)  # a flush after every message
+    normalize_all(raw, tmp_path / "tiny")
+    a, b = _read_all(tmp_path / "big"), _read_all(tmp_path / "tiny")
+    assert a.keys() == b.keys() and a
+    assert all(a[k].equals(b[k]) and a[k].schema == b[k].schema for k in a)
+
+
+def test_unsorted_channel_file_is_sorted_in_memory(tmp_path, caplog):
+    """Kalshi books are stamped with explicit times and can go back in time within a file; a
+    streaming merge would then differ from a sort, so the pipeline must sort instead."""
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    w = RawWriter(raw)
+    w.event("kraken", "connect", ts_ns=T0 + 1)
+    w.write("kraken", "book", _kraken_snapshot(11.0, 2.0), ts_ns=T0 + 50)  # written first...
+    w.write("kraken", "book", _kraken_snapshot(10.0, 1.0), ts_ns=T0 + 20)  # ...but earlier
+    w.close()
+    with caplog.at_level("WARNING"):
+        normalize_all(raw, norm)
+    assert "sorting channel book in memory" in caplog.text
+    df = pl.read_parquet(next(norm.rglob("hour=*.parquet")))
+    assert df["ts_recv"].to_list() == sorted(df["ts_recv"].to_list())
+    assert df["price"].drop_nulls().to_list()[0] == 10.0  # the earlier snapshot comes first
+
+
+def test_sorted_files_do_not_trigger_the_fallback(tmp_path, caplog):
+    raw = tmp_path / "raw"
+    _write_raw(raw)
+    with caplog.at_level("WARNING"):
+        normalize_all(raw, tmp_path / "norm")
+    assert "falling back" not in caplog.text
+
+
+def test_only_the_unsorted_channel_is_sorted_and_output_equals_a_global_sort(tmp_path, caplog):
+    from drc.normalize import pipeline
+    from drc.normalize.pipeline import _build, _channel_stream, _hour_files, connect_times
+
+    raw, norm = tmp_path / "raw", tmp_path / "norm"
+    w = RawWriter(raw)
+    w.event("kraken", "connect", ts_ns=T0 + 1)
+    w.write("kraken", "book", _kraken_snapshot(11.0, 2.0), ts_ns=T0 + 50)  # out of order
+    w.write("kraken", "book", _kraken_snapshot(10.0, 1.0), ts_ns=T0 + 20)
+    trade = (
+        '{"channel":"trade","type":"update","data":[{"symbol":"BTC/USD","side":"buy",'
+        '"price":%s,"qty":0.5,"trade_id":%d,"timestamp":"1970-01-01T00:00:02Z"}]}'
+    )
+    for i, t in enumerate((30, 40, 60)):  # sorted channel, interleaved with the book times
+        w.write("kraken", "trade", trade % (10 + i, i), ts_ns=T0 + t)
+    w.close()
+    date, hour = _hour_of(T0)
+    with caplog.at_level("WARNING"):
+        normalize_hour(raw, norm, "kraken", date, hour)
+    assert "sorting channel book in memory" in caplog.text
+    assert "sorting channel trade" not in caplog.text
+
+    files = _hour_files(raw, "kraken", date, hour)
+    expected = sorted(
+        (r for ch, p in files.items() for r in _channel_stream("kraken", ch, p, strict=False)),
+        key=pipeline._sort_key,
+    )
+    trades_df, book_df = _build(expected, "kraken", connect_times(raw, "kraken"))
+    got_t = pl.read_parquet(out_path(norm, "trades", "kraken", date, hour))
+    got_b = pl.read_parquet(out_path(norm, "book_events", "kraken", date, hour))
+    assert got_t.equals(trades_df) and got_b.equals(book_df)
+    assert got_t.height == 3

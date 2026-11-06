@@ -44,6 +44,14 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   (about 22 MB per minute, ~1.3 GB per hour uncompressed while the hour is open; hourly zstd
   compression cuts it roughly tenfold). Fine for a one-hour session; do not leave it running for
   days without the `max_total_gb` valve. Stop with SIGINT so the open hour flushes.
+- **Size normalization memory by the biggest hour, not the average.** Polymarket price-change hours
+  on the deadline universe reach 500-600 MB compressed (about 5 GB of JSON, ~18M rows); the old
+  normalizer held every parsed message of the hour in a list and read each file whole, peaking at
+  11.7 GB and getting OOM-killed on the 12 GB VM, while earlier laptop hours were 3x smaller and
+  fine. It now streams (k-way merge of the time-ordered channel files, lazy zst reads, chunked
+  tables): the same hour peaks at 3.5 GB. Two traps remain: Kalshi orderbook files are NOT in
+  receive-time order (explicit timestamps), so those hours take the full-sort fallback; and
+  `ulimit -v` breaks Go programs (rclone), so cap only the Python step.
 
 ## Books on near-resolved markets
 - **Locked books are not replay bugs.** Polymarket tokens of near-resolved markets sit at 99.8c /
@@ -101,7 +109,9 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 ## Tooling
 - `pkill -f <pattern>` run from the agent's own shell matches that shell (its command line
   contains the pattern) and kills it. Use `pgrep -f "bin/drc-record"` to find the PID, then
-  `kill -INT <pid>`.
+  `kill -INT <pid>`. The same happens over SSH (`ssh host 'pkill -f drc-normalize'` kills its own
+  remote shell: exit 255 or 143, and the job it was meant to stop may or may not die): put the
+  commands in a script file, or write the pattern as `[d]rc-normalize`.
 - Chain test, lint, and commit with `&&`, never `;`, so a failing test blocks the commit.
   Never pipe the test run through `tail`/`head`: a pipe returns the last command's exit code, so
   a failing pytest does not block the commit. Redirect full output to a file and read parts of it.
