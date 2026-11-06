@@ -9,6 +9,8 @@ SimBroker is stricter than the backtest's top-of-book fill:
 - walks the displayed levels at or better than the limit, paying each level's price;
 - takes at most `depth_share` of the displayed eligible depth;
 - floors the quantity to the size step; partial fills are allowed and the rest is cancelled;
+- treats a depth-capped size below the venue's minimum order size as unfilled (we could not
+  have sent it);
 - charges the venue fee on every level walked.
 It still cannot model market impact beyond displayed depth, adverse selection, or API failure.
 """
@@ -94,6 +96,9 @@ class SimBroker:
         target = _floor_to(min(order.qty, cap), cfg.size_step)
         if target <= 0:
             return unfilled("no_depth", mid)
+        if target < book.min_size - _EPS:
+            # the capped size is what we would really send; the venue would refuse it
+            return unfilled("depth_below_min_size", mid)
 
         legs: list[tuple[float, float]] = []
         left = target

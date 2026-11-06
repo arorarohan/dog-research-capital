@@ -280,3 +280,28 @@ def test_rebuild_from_events_matches_after_many_actions(tmp_path):
     f.settle("T", "win", 12 * S)
     re = FundState.from_events("f1", f.log.events())
     assert re.cash == pytest.approx(f.state.cash) and re.positions() == f.state.positions()
+
+
+def test_split_settlement_pays_half_and_keeps_venue_detail(tmp_path):
+    f = make(tmp_path)
+    f.submit(order(qty=100), book())
+    f.settle("T", "split", 20 * S, venue={"outcomePrices": '["0.5", "0.5"]'})
+    assert f.state.cash == pytest.approx(1000 - 32 + 50)
+    ev = f.log.events(types=["settlement"])[-1].payload
+    assert ev["kind"] == "split" and ev["value"] == 0.5 and ev["venue"]["outcomePrices"]
+    assert f.reconcile() == []
+
+
+def test_observations_change_no_state_and_other_types_are_refused(tmp_path):
+    f = make(tmp_path)
+    before = (f.state.cash, f.state.positions())
+    f.observe("market_observed", {"token": "T", "verdict": "skip"}, "s1")
+    f.observe("book_snapshot", {"raw": {}}, "s1", ts=5 * S)
+    assert (f.state.cash, f.state.positions()) == before
+    with pytest.raises(ValueError):
+        f.observe("fill", {}, "s1")
+    f.mark("T", 0.0, 11 * S, reason="no_book")
+    mark = f.log.events(types=["mark"])[-1].payload
+    assert mark == {"token": "T", "price": 0.0, "reason": "no_book"}
+    f.miss_session("s0", "laptop asleep", date="2026-11-05")
+    assert f.log.events(types=["session_missed"])[-1].payload["date"] == "2026-11-05"
