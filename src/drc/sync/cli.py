@@ -2,6 +2,10 @@
 
     drc-sync push   [--what raw,norm,hist,runs] [--dry-run]
     drc-sync pull   --host H [--what ...] [--into data/remote/H]
+                    [--root R] [--venue V] [--date D] [--hour H]   only that slice of raw/norm
+    drc-sync restore-drill --host H --venue V --date D --hour H [--root R]
+                                             pull one hour into an empty temp dir, re-normalize
+                                             its raw, check it equals the archived Parquet
     drc-sync verify [--what ...]             compare local files with the archive (size + hash)
     drc-sync status                          how many local files are not archived yet
     drc-sync prune-local [--apply]           delete local raw that the archive has VERIFIED
@@ -15,6 +19,7 @@ raw uploads use rclone's --immutable (a changed file is an error, not a replacem
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -23,7 +28,7 @@ import tomllib
 from pathlib import Path
 
 from drc.recorder.writer import RawWriter, stale_plain_files
-from drc.sync import plan
+from drc.sync import drill, plan
 from drc.sync.rclone import AuthError, Rclone, RcloneError
 
 WHATS = ("raw", "norm", "hist", "runs")
@@ -191,6 +196,50 @@ class Archive:
                     (self.data / root / rel).unlink()
         return deleted, kept
 
+    def remote_dirs(self, path: str) -> set[str]:
+        """Names of the folders directly under `path` on the archive (empty if it is absent)."""
+        p = self.rc.run("lsjson", path, "--dirs-only", ok_codes=(0, 3))  # 3: directory not found
+        return {d["Path"] for d in json.loads(p.stdout or "[]")} if p.returncode == 0 else set()
+
+    def pull(
+        self,
+        what: tuple[str, ...],
+        into: Path,
+        root: str | None = None,
+        venue: str | None = None,
+        date: str | None = None,
+        hour: int | None = None,
+    ) -> list[tuple[str, str, Path]]:
+        """Copy this host's archive (or a venue/day/hour slice of it) into `into/<kind>/<root>`.
+        Read-only on the archive. Roots the archive does not have (a host that never wrote
+        `norm/norm`, say) are skipped rather than failing the whole pull.
+        `root` names a raw root; norm is then pulled from its matching norm root."""
+        selecting = venue is not None or date is not None or hour is not None
+        kinds = self.remote_dirs(self.dest(""))
+        pulled = []
+        for kind in what:
+            if kind not in kinds:
+                print(f"skip {kind}: not on the archive for host {self.host}")
+                continue
+            if kind in ("raw", "norm"):
+                roots = plan.RAW_ROOTS if kind == "raw" else plan.NORM_ROOTS
+                if root is not None:
+                    roots = (root if kind == "raw" else plan.NORM_FOR_RAW.get(root),)
+                present = self.remote_dirs(self.dest(kind))
+                pats = plan.pull_filters(kind, venue, date, hour)
+            elif selecting:
+                print(f"skip {kind}: --venue/--date/--hour select raw and norm only")
+                continue
+            else:
+                roots, present, pats = ("",), {""}, []
+            for r in roots:
+                if r not in present:
+                    continue
+                src, dst = self.dest(kind, r), into / kind / r
+                self.rc.run("copy", src, dst, *(a for p in pats for a in ("--include", p)))
+                pulled.append((kind, r, dst))
+        return pulled
+
     def list_raw(self) -> list[tuple[str, plan.RawFile]]:
         p = self.rc.run("lsjson", self.remote, "-R", "--files-only", "--include", "*/raw/**")
         return plan.parse_remote_listing(p.stdout)
@@ -239,6 +288,33 @@ def report_blocked(ex: plan.Expiry) -> None:
         print(f"  blocked: not normalized  {host}/{root}/{venue}  {date}  hours {hrs}")
 
 
+def add_selection(p: argparse.ArgumentParser, required: bool) -> None:
+    """Which slice of the archive: one raw root (norm follows it), venue, UTC day and hour."""
+    p.add_argument(
+        "--root",
+        choices=plan.RAW_ROOTS,
+        default="raw_forward" if required else None,
+        help="raw root; norm comes from its norm root (raw_forward -> norm_forward)",
+    )
+    p.add_argument("--venue", required=required)
+    p.add_argument("--date", required=required, type=_date, help="UTC day, YYYY-MM-DD")
+    p.add_argument("--hour", required=required, type=_hour, help="UTC hour, 0-23")  # fmt: skip
+
+
+def _date(s: str) -> str:
+    try:
+        time.strptime(s, "%Y-%m-%d")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"not a YYYY-MM-DD date: {s!r}") from e
+    return s
+
+
+def _hour(s: str) -> int:
+    if not s.isdigit() or not 0 <= int(s) <= 23:
+        raise argparse.ArgumentTypeError(f"not an hour 0-23: {s!r}")
+    return int(s)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="drc-sync", description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", default="config/sync.toml", type=Path)
@@ -253,7 +329,13 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--dry-run", action="store_true")
         if name == "pull":
             p.add_argument("--into", type=Path)
+            add_selection(p, required=False)
     sub.add_parser("status")
+    p = sub.add_parser("restore-drill", help="pull one venue-hour into an empty directory, "
+                       "re-normalize the raw and compare with the archived Parquet")  # fmt: skip
+    add_selection(p, required=True)
+    p.add_argument("--into", type=Path, help="empty directory to work in (default: a new temp dir)")
+    p.add_argument("--keep", action="store_true", help="keep the work directory afterwards")
     p = sub.add_parser("prune-local")
     p.add_argument("--apply", action="store_true")
     p = sub.add_parser("expire-remote")
@@ -303,12 +385,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if missing else 0
         if args.cmd == "pull":
             into = args.into or args.data / "remote" / args.host
-            for kind in what:
-                roots = {"raw": plan.RAW_ROOTS, "norm": plan.NORM_ROOTS}.get(kind, ("",))
-                for root in roots:
-                    arc.rc.run("copy", arc.dest(kind, root), into / kind / root)
-            print(f"pulled {', '.join(what)} for host {args.host} into {into}")
+            done = arc.pull(what, into, args.root, args.venue, args.date, args.hour)
+            for kind, root, dst in done:
+                print(f"pulled {kind} {root or '-'} -> {dst}")
+            print(f"pulled {len(done)} folders for host {args.host} into {into}")
             return 0
+        if args.cmd == "restore-drill":
+            return drill.run(arc, args.root, args.venue, args.date, args.hour, args.into,
+                             keep=args.keep)  # fmt: skip
         if args.cmd == "prune-local":
             n, kept = arc.prune_local(ret.get("local_raw_days", 7), args.apply, now)
             verb = "deleted" if args.apply else "would delete"
