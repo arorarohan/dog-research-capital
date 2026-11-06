@@ -86,8 +86,10 @@ qty, fee, levels walked), `order_rejected` / `order_unfilled`, `mark` (liquidati
 **Storage choice: SQLite**, single file `data/ledger/events.sqlite`, with triggers that forbid
 UPDATE/DELETE. Reasons: tens to thousands of events a day, so no scale problem; transactions
 make a session atomic (all of its events or none); a future web app can query it directly;
-tests are trivial. Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
-to keep the DB small. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
+tests are trivial. ~~Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
+to keep the DB small.~~ *Changed in Slice 1 (2026-11-06):* raw book payloads are stored inline
+in `book_snapshot` events, so the hash chain covers the evidence itself and a session stays one
+transaction. Size: ~4 KB per book, ~20-40 books a day, roughly 50 MB a year; revisit if it grows. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
 a `rebuild` command; they are never the source of truth.
 
 **This log is irreplaceable evidence** (unlike market data it cannot be re-downloaded), so it
@@ -138,6 +140,17 @@ Charter v0 *proposals* (Rohan to confirm, see Q9-Q11):
 Where the live version differs from the backtest on purpose: ask not last trade; ex-ante
 volume; depth-limited fills; latency delay. The gap between predicted and realized is the
 experiment.
+
+**As built (Slice 1, 2026-11-06).** The charter is `funds/pm-sched-gap-v1.toml`, a **DRAFT**
+until Rohan freezes it; `drc-session` refuses real runs on a draft. Draft choices: universe
+2.5-3.5 days to the scheduled end with >= $50k volume to date (ex ante, as the recorder's
+deadline mode); $12 tickets capped at 25% of displayed depth at the decision ask (Q9's $50-100
+would routinely exceed the cap, median ask depth ~$45); at most $36 per real-world event;
+one buy per token ever. Polymarket has no void: a market that resolves 50/50 settles as
+`split` at 0.5. A position with no book or no bid is marked at 0. Minimum detectable edge for
+the planned 540 fills (90 days at ~6 a day) is ~5.6c against a predicted 1.2c, so the edge
+verdict will be "inconclusive" for a long time; costs and fill rates are what the first months
+judge (Q11).
 
 ## 6. Build plan
 
