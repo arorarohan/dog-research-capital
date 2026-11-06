@@ -22,6 +22,7 @@ drc-backfill = "drc.backfill.cli:main"
 drc-sync = "drc.sync.cli:main"
 drc-session = "drc.forward.session:main"
 drc-report = "drc.report.cli:main"
+drc-ledger-backup = "drc.forward.backup:main"
 
 [dependency-groups]
 dev = [
