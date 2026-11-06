@@ -15,8 +15,13 @@ def main() -> None:
     ap.add_argument("--norm", default="data/norm", type=Path)
     ap.add_argument("--venues", help="comma-separated, default all")
     ap.add_argument("--force", action="store_true", help="reprocess hours even if up to date")
+    ap.add_argument(
+        "--closed-only",
+        action="store_true",
+        help="skip the hour still being recorded (no partial Parquet); use in scheduled jobs",
+    )
     args = ap.parse_args()
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
     venues = args.venues.split(",") if args.venues else None
-    done = normalize_all(args.raw, args.norm, venues, args.force)
+    done = normalize_all(args.raw, args.norm, venues, args.force, args.closed_only)
     print(f"normalized {len(done)} venue-hours")

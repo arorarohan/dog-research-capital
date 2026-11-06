@@ -36,5 +36,9 @@ check "kraken"           "https://api.kraken.com/0/public/Time"
 # Install the recorder as a service (restarts on failure, starts at boot).
 sed "s|__USER__|$USER|g; s|__APP_DIR__|$APP_DIR|g" deploy/systemd/drc-record.service \
   | sudo tee /etc/systemd/system/drc-record.service >/dev/null
+# Archive cycle (installed, NOT enabled: it needs rclone and a Drive login first, docs/sync.md).
+sed "s|__USER__|$USER|g; s|__APP_DIR__|$APP_DIR|g; s|__HOST__|${DRC_HOST:-vm-london}|g" \
+  deploy/systemd/drc-sync.service | sudo tee /etc/systemd/system/drc-sync.service >/dev/null
+sudo cp deploy/systemd/drc-sync.timer /etc/systemd/system/drc-sync.timer
 sudo systemctl daemon-reload
 echo "Setup done. Review the connectivity lines above, then: sudo systemctl enable --now drc-record"

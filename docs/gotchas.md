@@ -114,3 +114,8 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   book for the cycle. The poller now paces all Kalshi requests to `max_rps` (default 5) and
   retries 429s with `Retry-After`; the same 255 requests then all succeeded. A throttled-and-
   recovered request is logged as a `throttled` meta event, so look for those.
+- **Recorder disk caps can delete data nobody has backed up.** `max_total_gb` prunes the oldest
+  days of channels that have a retention rule, with no idea whether they were uploaded. Polymarket
+  `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently
+  deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before
+  relying on it.

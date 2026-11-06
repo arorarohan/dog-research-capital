@@ -97,8 +97,16 @@ construction, web app later. Design: `docs/design/forward-test-platform.md`. A t
 - [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
 Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
 treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
-cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`; waiting on Rohan to create the VM).
-- [ ] Cloud VM (issue #12): create free-tier VM, run `deploy/setup-vm.sh`, confirm all venues reachable
+cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).
+- [x] Cloud VM (2026-10-27, issue #12): Oracle London `drc-vm` (A1, 2 OCPU/12 GB/100 GB) running
+      the recorder with `config/recorder-forward.toml` (PR #18). All five venues reachable.
+      Open on it: Kalshi 429s (#16), re-measure growth and retention (measured ~3.8 GB/day raw
+      price_change, so the 30 GB valve keeps only ~8 days), daily session timer with Slice 1.
+- [ ] Cloud archive on Google Drive + rclone (issue #15, `docs/sync.md`): `drc-sync` built
+      (PR in review); policy 15 days raw / 300 GB cap / Parquet forever / weekly sample hour.
+      Outstanding list with order is in `docs/sync.md` (own OAuth client first: rclone's shared
+      one is retired during 2026).
+- [ ] Verify the parsers before raw expires (issue #20, priority)
 - [x] Test length (2026-10-25): judge costs early; edge stays inconclusive until ~9,000 independent events (scoping doc Q11)
 
 ## Phase 5: Slow crypto book (later)

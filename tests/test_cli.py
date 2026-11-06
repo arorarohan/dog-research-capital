@@ -19,4 +19,4 @@ def test_forward_config_is_what_the_vm_service_runs():
     assert [s.venue for s in build_sources(cfg)] == ["polymarket", "kalshi"]  # no crypto books
     rules = {(r["venue"], r["channel"]): r["max_age_days"] for r in cfg["retention"]}
     assert rules == {("polymarket", "price_change"): 30, ("kalshi", "trades"): 30}
-    assert cfg["recorder"]["max_total_gb"] <= 30
+    assert cfg["recorder"]["max_total_gb"] == 50  # must exceed 7 days of price_change (~32 GB)

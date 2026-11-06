@@ -1,0 +1,13 @@
+[Unit]
+Description=Dog Research Capital archive cycle (normalize, upload to Drive, verify, prune)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__APP_DIR__
+Environment=DRC_HOST=__HOST__
+ExecStart=/bin/bash deploy/sync-cycle.sh
+Nice=10
+TimeoutStartSec=3h
