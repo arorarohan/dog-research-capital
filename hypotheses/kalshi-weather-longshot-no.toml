@@ -9,6 +9,7 @@ origin = "docs/findings/2026-10-23-weather-calibration.md"
 findings = [
     "docs/findings/2026-10-23-weather-calibration.md",
     "docs/findings/2026-10-25-forward-session-1.md",
+    "docs/findings/2026-11-06-multiple-testing.md",
 ]
 rule = """
 Buying No on brackets priced under 15c at 24h or 12h before close earns a gross gap of at least

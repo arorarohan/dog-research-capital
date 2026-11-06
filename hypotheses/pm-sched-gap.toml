@@ -9,6 +9,7 @@ origin = "docs/findings/2026-10-23-scheduled-calibration.md"
 findings = [
     "docs/findings/2026-10-23-scheduled-calibration.md",
     "docs/findings/2026-10-25-forward-session-1.md",
+    "docs/findings/2026-11-06-multiple-testing.md",
 ]
 rule = """
 Net-of-cost rule (committed before running, 2026-10-25, `scheduled_net_study`): buy Yes on every
