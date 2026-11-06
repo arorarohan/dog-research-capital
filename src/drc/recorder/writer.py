@@ -169,22 +169,25 @@ def _iter_lines(fh, chunk_size: int = 1 << 20):
         yield tail
 
 
-def read_lines(path: Path):
-    """Iterate decoded records from a .jsonl or .jsonl.zst file, skipping undecodable lines.
+def read_lines(path: Path, bad: list[int] | None = None):
+    """Iterate decoded records from a .jsonl or .jsonl.zst file, skipping undecodable lines
+    (their 1-based line numbers are appended to `bad` when given, so callers can count them).
 
     Lazy: an hour of Polymarket price changes is several GB decompressed (a 600 MB .zst on
     2026-10-30), so the file is read a chunk at a time, never whole."""
     with path.open("rb") as fh:
         if path.suffix == ".zst":
             with zstandard.ZstdDecompressor().stream_reader(fh) as reader:
-                yield from _decode(_iter_lines(reader), path)
+                yield from _decode(_iter_lines(reader), path, bad)
         else:
-            yield from _decode(_iter_lines(fh), path)
+            yield from _decode(_iter_lines(fh), path, bad)
 
 
-def _decode(lines, path: Path):
+def _decode(lines, path: Path, bad: list[int] | None = None):
     for i, line in enumerate(lines):
         try:
             yield orjson.loads(line)
         except orjson.JSONDecodeError:
             log.warning("%s line %d is not valid JSON; skipped", path, i + 1)
+            if bad is not None:
+                bad.append(i + 1)

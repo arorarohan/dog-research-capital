@@ -24,7 +24,7 @@ def _kraken_snapshot(price, qty):
     )
 
 
-def _write_raw(root):
+def _write_raw(root, pong=False):
     w = RawWriter(root)
     w.event("kraken", "connect", ts_ns=T0 + 1)
     w.write("kraken", "book", _kraken_snapshot(10.0, 1.0), ts_ns=T0 + 10)
@@ -37,7 +37,8 @@ def _write_raw(root):
     w.event("kraken", "disconnect", ts_ns=T0 + 30, reason="x")
     w.event("kraken", "connect", ts_ns=T0 + 40)
     w.write("kraken", "book", _kraken_snapshot(11.0, 2.0), ts_ns=T0 + 50)
-    w.write("kraken", "book", "PONG", ts_ns=T0 + 55)  # valid JSON string, not a book
+    if pong:
+        w.write("kraken", "book", "PONG", ts_ns=T0 + 55)  # valid JSON string, not a book
     w.write(
         "kraken",
         "trade",

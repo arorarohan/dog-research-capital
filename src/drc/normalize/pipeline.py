@@ -20,11 +20,15 @@ from pathlib import Path
 
 import polars as pl
 
+from drc.normalize.accounting import HourStats, read_problems, sidecar_path, write_sidecar
+from drc.normalize.fieldmap import IGNORED_CHANNELS, META_CHANNEL_NAME
 from drc.normalize.parsers import PARSERS
 from drc.normalize.rows import BOOK_EVENTS_SCHEMA, TRADES_SCHEMA, BookRow, Trade
 from drc.recorder.writer import META_CHANNEL, read_lines
 
 log = logging.getLogger(__name__)
+
+MAX_EXAMPLES = 3
 
 CHANNEL_ORDER = {key: i for i, key in enumerate(PARSERS)}
 
@@ -54,12 +58,29 @@ def _hour_files(raw_root: Path, venue: str, date: str, hour: int) -> dict[str, P
     return found
 
 
+def _unread_channels(raw_root: Path, venue: str, date: str, hour: int) -> list[str]:
+    """Raw channels with data for this hour that no parser reads and no one declared as ignored.
+    Such data would otherwise vanish without a trace (e.g. a new Polymarket event type)."""
+    out = []
+    for d in sorted((raw_root / venue).glob("*")):
+        ch = d.name
+        if not d.is_dir() or ch == META_CHANNEL_NAME or (venue, ch) in PARSERS:
+            continue
+        if (venue, ch) in IGNORED_CHANNELS:
+            continue
+        if any((d / date / f"{hour:02d}.{ext}").exists() for ext in ("jsonl.zst", "jsonl")):
+            out.append(ch)
+    return out
+
+
 def list_hours(raw_root: Path, venue: str) -> list[tuple[str, int]]:
     hours: set[tuple[str, int]] = set()
-    for (v, channel), _ in PARSERS.items():
-        if v != venue:
+    for d in (raw_root / venue).glob("*"):
+        if not d.is_dir() or d.name == META_CHANNEL_NAME:
             continue
-        for p in (raw_root / venue / channel).glob("*/*.jsonl*"):
+        if (venue, d.name) not in PARSERS and (venue, d.name) in IGNORED_CHANNELS:
+            continue  # declared ignorable: does not by itself make an hour worth normalizing
+        for p in d.glob("*/*.jsonl*"):
             hours.add((p.parent.name, int(p.name[:2])))
     return sorted(hours)
 
@@ -85,12 +106,14 @@ def _sort_key(rec: tuple) -> tuple:
     return rec[:3]  # (receive time, channel order, line index): unique, so the order is total
 
 
-def _channel_stream(venue: str, channel: str, path: Path, strict: bool):
+def _channel_stream(
+    venue: str, channel: str, path: Path, strict: bool, bad: list[int] | None = None
+):
     """Records of one channel file as (ts_recv, channel order, line index, channel, message).
     With `strict`, raise _Unsorted the moment receive time goes backwards."""
     order = CHANNEL_ORDER[(venue, channel)]
     prev = None
-    for line_idx, rec in enumerate(read_lines(path)):
+    for line_idx, rec in enumerate(read_lines(path, bad)):
         t = rec["t"]
         if strict and prev is not None and t < prev:
             raise _Unsorted(channel, line_idx)
@@ -122,19 +145,33 @@ class _Table:
         return pl.concat(self.frames, rechunk=False)
 
 
-def _build(records, venue: str, connects: list[int]) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Parse receive-ordered records into the `trades` and `book_events` frames."""
+def _build(
+    records, venue: str, connects: list[int], stats: HourStats | None = None
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Parse receive-ordered records into the `trades` and `book_events` frames, tallying every
+    message into `stats` (parsed / empty / unparseable)."""
     trades, book = _Table(TRADES_SCHEMA, CHUNK_ROWS), _Table(BOOK_EVENTS_SCHEMA, CHUNK_ROWS)
+    stats = stats or HourStats()
     msg_id = 0
     for ts_recv, _, _, channel, msg in records:
         table, parse = PARSERS[(venue, channel)]
+        cs = stats.channel(channel)
+        cs.raw += 1
         i = bisect.bisect_right(connects, ts_recv)
         epoch = connects[i - 1] if i else 0
         try:
             rows = list(parse(msg))
         except (KeyError, ValueError, TypeError) as e:
             log.warning("%s/%s unparseable message at %d: %r", venue, channel, ts_recv, e)
+            cs.unparseable += 1
+            if len(cs.examples) < MAX_EXAMPLES:
+                cs.examples.append(f"{e!r} in {str(msg)[:200]}")
             continue
+        if not rows:
+            cs.empty += 1
+            continue
+        cs.parsed += 1
+        cs.rows += len(rows)
         msg_id += 1
         for row in rows:
             if isinstance(row, Trade):
@@ -165,13 +202,24 @@ def _build(records, venue: str, connects: list[int]) -> tuple[pl.DataFrame, pl.D
 def normalize_hour(
     raw_root: Path, norm_root: Path, venue: str, date: str, hour: int, force: bool = False
 ) -> dict[str, int]:
-    """Normalize one hour. Returns row counts per table (empty dict if skipped)."""
+    """Normalize one hour. Returns row counts per table (empty dict if skipped).
+
+    Every raw message is tallied in an accounting sidecar (see `accounting.py`); unexplained
+    loss is logged as an error here and raised by `normalize_all` once every hour is done."""
     files = _hour_files(raw_root, venue, date, hour)
+    unread = _unread_channels(raw_root, venue, date, hour)
     if not files:
+        if unread:  # only undeclared channels this hour: nothing to normalize, but say so
+            stats = HourStats(unread_channels=unread)
+            for problem in stats.problems():
+                log.error("%s %s %02d: %s", venue, date, hour, problem)
+            write_sidecar(norm_root, venue, date, hour, stats)
         return {}
     outs = [out_path(norm_root, t, venue, date, hour) for t in ("trades", "book_events")]
     newest_input = max(p.stat().st_mtime for p in files.values())
-    if not force and all(o.exists() and o.stat().st_mtime >= newest_input for o in outs):
+    # An hour with no accounting sidecar (normalized before #20) is redone once, so it gets one.
+    done = all(o.exists() and o.stat().st_mtime >= newest_input for o in outs)
+    if not force and done and sidecar_path(norm_root, venue, date, hour).exists():
         return {}
 
     connects = connect_times(raw_root, venue)
@@ -181,15 +229,21 @@ def normalize_hour(
     # Found on the fly: restart with that channel marked, so each channel costs one extra pass.
     in_memory: set[str] = set()
     while True:
+        stats = HourStats(unread_channels=unread)
+        bads: dict[str, list[int]] = {ch: [] for ch in files}
         try:
             streams = []
             for ch, p in files.items():
                 if ch in in_memory:
-                    records = sorted(_channel_stream(venue, ch, p, strict=False), key=_sort_key)
+                    records = sorted(
+                        _channel_stream(venue, ch, p, strict=False, bad=bads[ch]), key=_sort_key
+                    )
                     streams.append(iter(records))
                 else:
-                    streams.append(_channel_stream(venue, ch, p, strict=True))
-            trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, connects)
+                    streams.append(_channel_stream(venue, ch, p, strict=True, bad=bads[ch]))
+            trades_df, book_df = _build(
+                heapq.merge(*streams, key=_sort_key), venue, connects, stats
+            )
             break
         except _Unsorted as e:
             in_memory.add(e.channel)
@@ -202,9 +256,12 @@ def normalize_hour(
                 e.channel,
             )
 
+    for ch, bad in bads.items():
+        stats.channel(ch).bad_lines = len(bad)
     counts = {}
     for name, df in (("trades", trades_df), ("book_events", book_df)):
         counts[name] = df.height
+        stats.rows[name] = df.height
         path = out_path(norm_root, name, venue, date, hour)
         if df.height == 0:
             path.unlink(missing_ok=True)
@@ -213,7 +270,19 @@ def normalize_hour(
         tmp = path.with_suffix(".tmp")
         df.write_parquet(tmp, compression="zstd", compression_level=PARQUET_ZSTD_LEVEL)
         tmp.replace(path)
+    for problem in stats.problems():
+        log.error("%s %s %02d: UNEXPLAINED LOSS: %s", venue, date, hour, problem)
+    write_sidecar(norm_root, venue, date, hour, stats)
     return counts
+
+
+class UnexplainedLoss(Exception):
+    """Some raw messages were not turned into rows and not accounted for as ignorable."""
+
+    def __init__(self, lossy: dict[tuple[str, str, int], list[str]]) -> None:
+        self.lossy = lossy
+        lines = [f"{v} {d} {h:02d}: {'; '.join(p)}" for (v, d, h), p in sorted(lossy.items())]
+        super().__init__(f"unexplained loss in {len(lossy)} hours:\n" + "\n".join(lines))
 
 
 def _is_open_hour(date: str, hour: int, now: float) -> bool:
@@ -231,9 +300,13 @@ def normalize_all(
     now: float | None = None,
 ) -> dict[tuple[str, str, int], dict[str, int]]:
     """Normalize every hour found. With `closed_only`, skip the hour still being recorded so no
-    partial Parquet is written (and later uploaded) for it."""
+    partial Parquet is written (and later uploaded) for it.
+
+    Raises `UnexplainedLoss` after all hours are done if any hour (this run or an earlier one)
+    has unparseable messages, invalid lines, or raw channels nobody declared."""
     now = time.time() if now is None else now
     done = {}
+    lossy: dict[tuple[str, str, int], list[str]] = {}
     for venue in venues or sorted({v for v, _ in PARSERS}):
         for date, hour in list_hours(raw_root, venue):
             if closed_only and _is_open_hour(date, hour, now):
@@ -242,4 +315,8 @@ def normalize_all(
             if counts:
                 done[(venue, date, hour)] = counts
                 log.info("normalized %s %s %02d: %s", venue, date, hour, counts)
+            if problems := read_problems(norm_root, venue, date, hour):
+                lossy[(venue, date, hour)] = problems
+    if lossy:
+        raise UnexplainedLoss(lossy)
     return done
