@@ -142,12 +142,13 @@ class KalshiPoller:
         async with self.sem:
             resp = await self._get(client, f"{BASE}/markets/{ticker}/orderbook")
         resp.raise_for_status()
-        t = time.time_ns()
+        # Stamp with the writer's strictly increasing clock (like every other channel), not the
+        # raw wall clock: WSL2's clock steps backwards, which put books out of receive order (#20).
         writer.write(
             self.venue,
             "orderbook",
             b'{"ticker":"%s","resp":%s}' % (ticker.encode(), resp.content),
-            t,
+            writer.now_ns(),
         )
 
     async def poll_trades(self, client: httpx.AsyncClient, writer: RawWriter) -> None:
