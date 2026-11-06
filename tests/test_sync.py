@@ -316,3 +316,8 @@ def test_auth_age_reads_the_stamp_file(tmp_path):
     assert auth_age_days(stamp, NOW) == pytest.approx(6.0)
     stamp.write_text("not a number")
     assert auth_age_days(stamp, NOW) is None
+
+
+def test_delete_requires_an_explicit_file_list():
+    with pytest.raises(ValueError, match="files-from"):
+        Rclone("rclone", FakeRunner()).run("delete", "gdrive:drc/x")

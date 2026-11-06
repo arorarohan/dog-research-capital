@@ -35,6 +35,8 @@ class Rclone:
     def run(self, verb: str, *args: object, ok_codes: tuple[int, ...] = (0,)):
         if verb not in ALLOWED:
             raise ValueError(f"rclone verb {verb!r} is not allowed here")
+        if verb == "delete" and "--files-from" not in {str(a) for a in args}:
+            raise ValueError("rclone delete is only allowed with an explicit --files-from list")
         cmd = [self.binary, verb, *(str(a) for a in args)]
         self.calls.append(cmd)
         p = self._run(cmd, capture_output=True, text=True)
