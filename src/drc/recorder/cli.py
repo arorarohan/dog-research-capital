@@ -47,6 +47,7 @@ def build_sources(cfg: dict, only: set[str] | None = None) -> list:
                 k.get("poll_secs", 15),
                 k.get("catalog_secs", 3600),
                 series=tuple(k.get("series", ())),
+                max_rps=k.get("max_rps", 5.0),
             )
         )
     return sources
