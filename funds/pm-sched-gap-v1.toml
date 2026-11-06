@@ -1,0 +1,104 @@
+# ============================================================================================
+#  DRAFT: NOT FROZEN. Rohan reviews this file before it freezes (scoping doc Q10).
+#  Freezing = set status = "frozen", commit, then the first real session hashes this exact
+#  file into the fund_created event. After that, any change to the rules is a NEW fund
+#  (pm-sched-gap-v2), never an edit. `drc-session` refuses real runs while status = "draft";
+#  only `--dry-run` works.
+# ============================================================================================
+# Design: docs/design/forward-test-platform.md sections 2 and 5. Drafted 2026-11-06 (#11).
+
+status = "draft"   # draft | frozen
+fund_id = "pm-sched-gap-v1"
+name = "Polymarket scheduled-end gap, v1"
+version = 1
+
+[hypothesis]
+id = "pm-sched-gap"
+finding = "docs/findings/2026-10-23-scheduled-calibration.md"
+claim = """
+Polymarket binary contracts priced 5-60c about 3 days before their SCHEDULED end resolve Yes
+more often than their price implies. Backtest (holdout, 3-day horizon): buying Yes and holding
+to resolution earned +1.2c per contract net of each market's fee and a 1c half-spread, 95% CI
+[+0.5, +1.9], 9,613 contracts / 4,987 events. The 10-40c bands carry most of it; 40-60c has
+none. No mechanism is known, which raises the bar for believing it persists."""
+
+[universe]
+# Everything here is known at decision time (ex ante). Enumerated from Gamma at session time.
+venue = "polymarket"
+min_hours_to_end = 60          # scheduled end (Gamma endDate) 2.5-3.5 days after the session
+max_hours_to_end = 84          # a 24h window, so daily sessions tile the calendar
+min_volume_to_date = 50000     # USD volume to date at decision time (Gamma volumeNum), applied
+                               # server-side and re-checked; the backtest used TOTAL volume,
+                               # known only at the end. This removes that hindsight filter.
+binary_yes_no_only = true      # outcomes exactly ["Yes", "No"]
+require_accepting_orders = true
+exclude_resolution_in_progress = true  # skip if Gamma shows any UMA resolution activity
+
+[entry]
+side = "buy_yes"
+min_ask = 0.05                 # best ask (not last trade, as in the backtest: deliberately stricter)
+max_ask = 0.60
+limit = "decision_best_ask"    # marketable limit at the ask seen at decision; never chases
+once_per_token = true          # a token is bought at most once in the fund's life
+log_out_of_band = true         # contracts outside the band are logged with their book, not traded
+
+[exit]
+rule = "hold_to_resolution"    # no stop, no early exit; settles on the venue's final resolution
+
+[sizing]
+# Median displayed depth at the best ask in this universe is ~$45 (forward session 1), so a
+# fixed small ticket. Q9 proposed $50-100; that would routinely exceed the depth cap.
+dollars_per_trade = 12.0       # target notional at the decision ask
+depth_share = 0.25             # never take more than 25% of displayed depth at or under the limit
+                               # (applied when sizing and again by the broker at fill time)
+
+[execution]
+latency_secs = 5               # fill against a book fetched >= 5 s after the decision book
+max_book_age_secs = 30         # and no older than 30 s at execution
+fees = "market feeSchedule from Gamma (rate x (p(1-p))^exponent per share), taker"
+
+[risk]
+max_order_notional = 15.0      # dollars at the limit price
+max_event_exposure = 36.0      # at most ~3 tickets on one real-world event (legs are dependent)
+max_fund_exposure = 3000.0     # expected deployed ~$250-400 (6 tickets/day x ~3.5 day lockup)
+max_drawdown = 0.20            # NAV at or below 80% of allocated halts new entries (no flattening)
+
+[capital]
+initial = 10000.0              # from the notional $100k firm treasury (Q9)
+
+[schedule]
+cadence = "daily"
+time_utc = "12:00"             # one session per UTC day; a day with no session is logged as missed
+
+[prediction]
+# Written before the first trade. Headline forward number = realized minus predicted.
+net_per_contract_cents = 1.2
+ci95_cents = [0.5, 1.9]
+gross_cents = 2.8
+fee_cents = 0.6
+assumed_half_spread_cents = 1.0
+breakeven_half_spread_cents = 2.2
+source = "holdout 2026-02-09..2026-09-01, 3-day horizon, 1c half-spread (scheduled_net_study)"
+live_differences = "ask not last trade; ex-ante volume; depth-capped fills; 5 s latency; $12 tickets"
+
+[evaluation]
+min_days = 90                  # sessions, from the first real session
+min_fills = 300
+expected_fills_per_day = 6     # 2026-11-06: 45 in-band binary markets, 42 events, over 7 days
+planned_fills = 540            # 90 days x 6
+per_contract_sd = 0.464        # sqrt(mean p(1-p)) = sqrt(0.215) over those 45 markets
+# Minimum detectable edge, 80% power, two-sided alpha 0.05: (1.96 + 0.84) x 0.464 / sqrt(540).
+# The predicted edge (1.2c) is ~5x smaller: about 11,700 fills would be needed (~5 years at
+# this rate). So within 90 days the EDGE verdict is "inconclusive" unless realized net per
+# contract is beyond +/-5.6c; what this test CAN judge in weeks is the cost model.
+mde_cents = 5.6
+test = "one-sample t on realized net per contract minus 1.2c, clustered by event, alpha 0.05"
+alpha = 0.05
+kill_cost = """after >= 100 fills: kill if mean (fill price - mid) + fee per contract exceeds
+the 2.2c break-even half-spread, i.e. the live cost alone eats the backtest's gross edge"""
+kill_edge = """after >= 300 fills: kill if the 95% upper bound of realized net per contract is
+below 0"""
+kill_fill_rate = """after >= 60 attempted entries: kill if fewer than 50% get any fill (the
+strategy cannot be executed at these sizes)"""
+cannot_test = """market impact beyond displayed depth, adverse selection against our orders,
+API failures, operational mistakes"""
