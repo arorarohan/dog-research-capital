@@ -103,7 +103,9 @@ def replay_tops(
         "price",
         "size",
     ]
-    touched: set[tuple[str, str]] = set()
+    # insertion-ordered (a set's order varies with the per-process hash seed), so output rows of
+    # one message come out in the same order on every run
+    touched: dict[tuple[str, str], None] = {}
     cur_msg: tuple[int, int] | None = None
     cur_ctx: int | None = None  # ts_recv of the message being applied
 
@@ -149,7 +151,7 @@ def replay_tops(
             books[key].set_level(side, price, size)
             if venue in max_levels:
                 books[key].trim(max_levels[venue])
-        touched.add(key)
+        touched[key] = None
     if cur_msg is not None:
         flush()
     return pl.DataFrame(rows, schema=TOPS_SCHEMA, orient="row"), stats
