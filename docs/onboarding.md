@@ -65,6 +65,58 @@ commits, PR, Rohan merges, sync. Then do the whole loop once for real on a tiny 
 5. Show Chris the PR on GitHub. Explain that once Rohan merges it, the next task starts again
    from step 2 of the loop.
 
-## 7. Done
+## 7. Market data (read-only copy of the Drive archive)
+Recordings live on Rohan's Google Drive in a folder `drc` (layout and policy: `docs/sync.md`).
+Chris reads it with his own rclone login; he never writes to it.
+
+**Rohan does first (once), and tells Chris when done:**
+1. Share the Drive folder `drc` with Chris's Google account as **Viewer**, and send him the
+   folder link (`https://drive.google.com/drive/folders/<FOLDER_ID>`).
+2. Google Cloud console, project `drc-rclone`, OAuth consent screen > *Test users*: add Chris's
+   Google account (the app is in Testing; only listed users can log in).
+3. Send Chris the OAuth client secret privately (not in chat with an agent, not in the repo).
+   The client ID is public and is in `docs/sync.md`.
+
+**Chris (his agent explains each step):**
+1. Install rclone as in `docs/sync.md` "Setup on a new machine", step 1 (download, check the
+   SHA256, put it on PATH).
+2. Save the client secret yourself, in a normal terminal (not through the agent):
+   `mkdir -p ~/.config/rclone && nano ~/.config/rclone/client_secret.txt` (paste, save), then
+   `chmod 600 ~/.config/rclone/client_secret.txt`.
+3. Create a remote called `drc` whose root is the shared folder (`root_folder_id`; a folder
+   shared with you is under "Shared with me", not your own Drive, so `gdrive:drc` would not find
+   it) and that can only read (`drive.readonly`). Chris runs, with the IDs filled in:
+   ```
+   ! rclone config create drc drive scope=drive.readonly root_folder_id=<FOLDER_ID> client_id=<CLIENT_ID> client_secret="$(cat ~/.config/rclone/client_secret.txt)"
+   ```
+   It prints a `http://127.0.0.1:53682/auth?...` link: open it in the browser, pick your Google
+   account, *Advanced > Go to drc-rclone*, Allow. Then `date +%s > ~/.config/rclone/drc-authorized-at`.
+   (The read-only scope is not yet tried with our Testing app; if Google refuses it, use
+   `scope=drive` and rely on the Viewer role.)
+4. Check: `rclone lsf drc:` lists `rohan-laptop/` and `vm-london/`.
+5. In the repo: `export DRC_REMOTE=drc:` (add it to `~/.bashrc`). Do **not** set `DRC_HOST`:
+   Chris has no recorder, and without it `drc-sync push` refuses to run.
+6. Prove it end to end with a restore drill on a recent hour (raw is kept 15 days):
+   `uv run drc-sync --host vm-london restore-drill --venue kalshi --date <YYYY-MM-DD> --hour 17`
+   should end with `PASS`.
+7. Pull what you need into `data/remote/vm-london/` (Parquet, kept forever; all of it was 7.1 GiB
+   on 2026-11-06 and grows ~0.9 GB a day, so pull slices):
+   ```
+   uv run drc-sync pull --host vm-london --what norm --root raw_forward --venue kalshi
+   uv run drc-sync pull --host vm-london --what norm --root raw_forward --venue polymarket --date 2026-11-03
+   ```
+
+**Weekly:** the login dies 7 days after each authorization while the app is in Testing
+(`drc-sync` warns from day 5, then says `AUTH EXPIRED`). Renew with `! rclone config reconnect drc:`
+and `date +%s > ~/.config/rclone/drc-authorized-at`.
+
+**Never upload to the shared archive** (no `drc-sync push`, no `rclone copy` into `drc:`): the
+archive is Rohan's VM and laptop output only, and the read-only scope plus Viewer role block it
+anyway. The quota catch: a file Chris uploads into Rohan's folder is owned by Chris and counts
+against **Chris's** Drive storage (15 GB free), not Rohan's 400 GiB; only Chris can free it. A
+day of VM raw is ~5 GB, so it would fill within days and fail halfway. Downloads use no storage.
+If Chris ever records data of his own, talk to Rohan first about where it goes.
+
+## 8. Done
 Tell Chris what was set up, where his personal file is, and the one rule to remember: **start
 every task by syncing main and making a branch; never work on main.**

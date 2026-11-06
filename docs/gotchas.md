@@ -17,6 +17,12 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   parser changes.
 - **Depth-limited books (Kraken, depth 100) must be trimmed client-side**; the exchange never
   sends removals for levels that fall out of range.
+- **Re-normalizing one hour needs the venue's whole `_meta` history, not the hour's.** A row's
+  `epoch` is the latest connect at or before it, and Kalshi's poller logs a connect only at
+  start-up (the 2026-11-03 hours take theirs from 2026-10-28). Normalized with only the hour's
+  raw, every row of a Kalshi hour differed from the archive; with `_meta` it was identical
+  (restore drill, 2026-11-06). `drc-sync pull` selections fetch `_meta` for this reason; #41
+  stops `prune-local` deleting it.
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
 

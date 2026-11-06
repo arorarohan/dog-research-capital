@@ -37,8 +37,43 @@ uv run drc-sync verify                # size + hash check against the archive
 uv run drc-sync prune-local           # dry run; --apply deletes verified local raw >7 days old
 uv run drc-sync expire-remote         # dry run; --apply deletes expired archive raw that is normalized
 uv run drc-sync pull --host vm-london --what norm   # into data/remote/vm-london
+uv run drc-sync pull --host vm-london --what norm --root raw_forward --venue kalshi --date 2026-11-03
+uv run drc-sync --host vm-london restore-drill --venue kalshi --date 2026-11-03 --hour 17
 ```
-Pulls land in a separate directory per host and never merge into your own `data/raw*`.
+Pulls land in a separate directory per host and never merge into your own `data/raw*`. They are
+read-only on the archive. `--root` names a raw root and norm follows it (`raw_forward` ->
+`norm_forward`); `--venue/--date/--hour` narrow raw and norm (hist and runs are skipped when
+selecting). A raw selection always includes the venue's whole `_meta` channel (~0.4 MB for
+Kalshi), because the normalizer needs every earlier connect to assign epochs. Folders a host does
+not have (`vm-london` has no `norm/norm`, `hist` or `runs`) are skipped instead of failing.
+`DRC_REMOTE` overrides the remote (e.g. `drc:` for a remote rooted at the shared folder).
+
+## Restore drill (`drc-sync restore-drill`)
+Proves the archive can rebuild what it claims: pulls one venue-hour of raw (plus the venue's
+`_meta`) and that hour's archived Parquet into a fresh temp directory (never `data/`; an existing
+`--into` must be empty), runs the normalizer (`normalize_all`, what `drc-normalize` calls) on the
+pulled raw, and checks each table is identical to the archived one with polars frame equality
+(rows, order, values and schema; not bytes, since compression may differ). Exit 0 on PASS, 1 on
+any difference (the work dir is then kept for inspection), 3 if the Drive login has expired.
+Pick an hour younger than 15 days, or its raw has expired. Offline tests: `tests/test_sync_drill.py`
+(a fake rclone serves a local folder as the archive).
+
+**First drill, 2026-11-06 (laptop, rclone v1.75.2), PASS:**
+```
+uv run drc-sync --host vm-london restore-drill --venue kalshi --date 2026-11-03 --hour 17
+```
+- Pulled: raw 2 files 0.38 MB (`orderbook`, `trades`) + `_catalog` + `_meta` 188 files 0.41 MB;
+  archived Parquet 2 files 0.29 MB. Pull 51.6 s (Drive's per-file latency on ~190 small files,
+  not bandwidth), re-normalize 1.0 s, whole run 52.9 s wall, 232 MB peak memory.
+- `trades` 1,832 rows and `book_events` 226,063 rows: **identical** to the archived Parquet.
+- Repeated through a `root_folder_id` remote (Chris's setup, see `docs/onboarding.md`) with
+  `DRC_REMOTE="gdrive,root_folder_id=<drc folder id>:"`: same result, 43.5 s.
+- Control: re-normalizing the same raw **without** the older `_meta` gives the same row counts
+  but every row differs (`epoch` is 0): this hour's epoch is a connect from 2026-10-28 06:52.
+  That is why the pull takes `_meta`, and it exposed #41 (`prune-local` deletes old `_meta` on
+  the VM, so a later re-normalize there would silently change epochs).
+- Not drilled: a Polymarket hour (~80 MB raw, ~19 MB Parquet per hour), the dominant data.
+  Same command with `--venue polymarket`; worth one run before raw of early November expires.
 
 ## Setup on a new machine
 1. Install rclone (download the zip from downloads.rclone.org, verify the SHA256 in the
@@ -59,7 +94,8 @@ now. Consequences:
 - Google expires **refresh tokens 7 days** after each authorization, so Drive sync stops weekly
   until someone re-authorizes. `drc-sync` exits with code 3 and says `AUTH EXPIRED`, and warns
   from day 5 (it reads the date stamp `~/.config/rclone/drc-authorized-at`).
-- Only listed **test users** can authorize (Rohan's Google account; add Chris's when he needs it).
+- Only listed **test users** can authorize (Rohan's Google account; add Chris's when he needs it,
+  see `docs/onboarding.md` section 7).
 - The cloud VM therefore cannot sync unattended for more than a week. Until we leave Testing, the
   laptop re-authorizes weekly and the token is copied to the VM, or the VM's sync waits.
 - To leave Testing later: put a one-paragraph homepage and privacy page on Rohan's domain
@@ -133,6 +169,8 @@ Resuming is always safe: `DRC_HOST=rohan-laptop uv run drc-sync push` is idempot
    empty, so they show as blocked until `drc-normalize` re-runs them (it does so by itself on the
    next cycle, since an hour with a missing output is never skipped). Still to do: the first real
    `expire-remote` dry run once data older than 15 days exists (about 2026-11-12).
-6. Restore test: pull into a clean directory, run `drc-normalize`, compare row counts.
-7. Docs for Chris (`docs/onboarding.md`): install rclone, authorize, `drc-sync pull`.
+6. ~~Restore test~~ **done 2026-11-06**: `drc-sync restore-drill`, PASS on Kalshi 2026-11-03
+   17:00 (see "Restore drill"). Follow-up #41 (`prune-local` must keep `_meta`).
+7. ~~Docs for Chris~~ written 2026-11-06 (`docs/onboarding.md`, section 7). Waiting on Rohan:
+   share the `drc` folder with Chris (Viewer), add him as a test user, send him the client secret.
 8. Parser verification (#20) is the priority behind all of this: raw expires after 15 days.
