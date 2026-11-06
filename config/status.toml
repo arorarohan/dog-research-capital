@@ -1,0 +1,60 @@
+# drc-status: what to check and when to complain. See docs/deploy.md ("Health check").
+# Exit code: 0 all ok, 1 any warning, 2 any error (stale, failing or unreachable).
+# All checks are read-only. Ages are measured on the checked machine's own clock.
+
+[thresholds]
+# Newest raw market-data file per venue (Polymarket streams constantly; Kalshi polls every 60 s).
+raw_age_warn_min = 10
+raw_age_error_min = 30
+# Feed gaps in the last 24 h, from the recorder's _meta events. A "gap" is one unplanned
+# disconnect (any venue or shard); restarts (shutdown events) are listed but not counted.
+# Baseline before #23: Polymarket 15-39 a day.
+gaps_warn_per_day = 10
+gaps_error_per_day = 50
+gap_long_warn_secs = 120      # any single gap this long (disconnect until reconnect)
+# Kalshi poll errors (failed REST polls; each drops that market's book for one cycle).
+# 646 on 2026-11-04 during the 429 problem (#24), ~0-5 a day since.
+poll_errors_warn_per_day = 20
+poll_errors_error_per_day = 200
+# Polymarket close code 1013 "slow consumer", counted in the recorder's journal over 24 h.
+# Baseline before #23: 13-34 a day. The fix should bring this to ~0.
+code1013_warn_per_day = 3
+code1013_error_per_day = 20
+# drc-sync runs hourly (:10) and a cycle takes ~15 min (up to 3 h after a backlog).
+sync_age_warn_hours = 2.5
+sync_age_error_hours = 6
+# Drive login: Google expires Testing-mode refresh tokens 7 days after authorization.
+auth_warn_days = 5
+auth_expire_days = 7
+# Disk of the machine; and raw dir as % of the recorder's max_total_gb (it deletes beyond that).
+disk_warn_pct = 80
+disk_error_pct = 90
+raw_cap_warn_pct = 85
+# Opt-in --probe-drive: free space left on Google Drive.
+drive_free_warn_gb = 50
+
+[vm]
+# ssh target. "drc-vm" is an ssh alias (see docs/deploy.md); override with $DRC_VM_SSH / --ssh.
+ssh = "drc-vm"
+ssh_key = ""                                  # or $DRC_VM_KEY / --ssh-key; empty = ssh's default
+repo = "~/dog-research-capital"
+raw_dir = "data/raw_forward"
+venues = ["polymarket", "kalshi"]
+recorder_service = "drc-record"
+sync_service = "drc-sync"
+recorder_config = "config/recorder-forward.toml"   # read locally for max_total_gb
+auth_stamp = "~/.config/rclone/drc-authorized-at"
+# rclone about can refresh and rewrite the token in rclone.conf; off on the VM (the hourly sync
+# log already shows auth failures). Turn on for one run with --probe-drive.
+probe_drive = false
+history_days = 7
+
+[local]
+# The laptop does not run the recorder or the sync timer; leave those empty to skip the checks.
+repo = "."
+raw_dir = ""
+venues = []
+recorder_service = ""
+sync_service = ""
+auth_stamp = "~/.config/rclone/drc-authorized-at"
+probe_drive = true
