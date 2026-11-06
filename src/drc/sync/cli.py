@@ -319,7 +319,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="drc-sync", description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", default="config/sync.toml", type=Path)
     ap.add_argument("--data", default="data", type=Path)
-    ap.add_argument("--remote", help="rclone remote:folder (default from config)")
+    ap.add_argument(
+        "--remote",
+        default=os.environ.get("DRC_REMOTE"),
+        help="rclone remote:folder (default: $DRC_REMOTE, else config). A remote whose "
+        "root_folder_id is the shared archive folder itself is written `name:`",
+    )
     ap.add_argument("--host", default=os.environ.get("DRC_HOST"), help="this machine's name")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("push", "verify", "pull"):

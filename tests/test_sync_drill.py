@@ -40,12 +40,12 @@ class FakeRclone:
     """Stands in for the rclone binary, serving `root` as `gdrive:drc`. Supports what pull uses:
     `lsjson --dirs-only` (exit 3 if absent, like rclone) and `copy` with `--include` filters."""
 
-    def __init__(self, root: Path):
-        self.root, self.cmds = root, []
+    def __init__(self, root: Path, remote: str = REMOTE):
+        self.root, self.remote, self.cmds = root, remote, []
 
     def local(self, remote: str) -> Path:
-        assert remote.startswith(REMOTE)
-        return self.root / remote[len(REMOTE) :].lstrip("/")
+        assert remote.startswith(self.remote), remote
+        return self.root / remote[len(self.remote) :].lstrip("/")
 
     def __call__(self, cmd, capture_output, text):
         self.cmds.append(cmd)
@@ -199,3 +199,17 @@ def test_cli_restore_drill_and_selection_validation(tmp_path, archive_root, monk
         main([*base, "restore-drill", "--venue", "kraken", "--date", DAY1, "--hour", "24"])
     with pytest.raises(SystemExit):
         main([*base, "pull", "--date", "09-10-2025"])
+
+
+def test_drc_remote_env_points_at_a_shared_folder_remote(tmp_path, archive_root, monkeypatch):
+    """Chris's setup: his own remote whose root_folder_id is the shared `drc` folder, so the
+    archive is at `drc:` rather than `gdrive:drc`."""
+    fake = FakeRclone(archive_root, remote="drc:")
+    monkeypatch.setattr("drc.sync.cli.Rclone", lambda: Rclone("rclone", fake))
+    monkeypatch.setenv("DRC_AUTH_STAMP", str(tmp_path / "none"))
+    monkeypatch.setenv("DRC_REMOTE", "drc:")
+    into = tmp_path / "pulled"
+    assert main(["--config", "config/sync.toml", "--host", "vm-london", "pull", "--what", "norm",
+                 "--into", str(into)]) == 0  # fmt: skip
+    assert {c[2] for c in fake.cmds if c[1] == "copy"} == {"drc:/vm-london/norm/norm_forward"}
+    assert len(list((into / "norm/norm_forward").rglob("*.parquet"))) == 4
