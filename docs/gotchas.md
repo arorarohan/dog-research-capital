@@ -123,6 +123,32 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   A closed market without those is still awaiting resolution; do not settle on last prices.
 - **Without a volume floor the 2.5-3.5 day window holds 3,000+ markets** (2026-11-06), mostly
   tiny; with `volume_num_min=50000` it is ~17. Filter server-side.
+- **UNVERIFIED: a ~$1 minimum notional on marketable orders.** Secondary reports say Polymarket
+  rejects marketable (immediately-filling) orders under about $1. Checked 2026-11-06: the public
+  docs (docs.polymarket.com, "Place Orders") state only `min_order_size` in SHARES per market
+  (5 on every market we have seen) and no USDC minimum for limit or market (FOK/FAK) orders;
+  another docs page calls the Gamma field a USDC minimum, so the docs disagree. `SimBroker`
+  enforces only the share minimum. It matters little at our $12 tickets, but a depth-capped
+  5-share order at 5-19c is under $1. If anyone confirms the $1 rule, add it to the broker
+  (unfilled `below_min_notional`) and to the charter's sizing notes.
+
+## Forward-test sessions (drc-session)
+- **Do not judge latency by the wall clock you slept on.** The session sleeps its 5 s latency on
+  the monotonic clock, but `SimBroker` compares wall-clock times (fill book `ts` vs decision
+  `ts`); a backward wall-clock step during the sleep (see the WSL2 item above) rejected good
+  orders as `book_too_early` and burned the token. The session now also waits, capped at 30 s,
+  until the wall clock passes decision + latency + 0.5 s, and logs both clocks with the fill book.
+- **A crash rolls back the whole session, fills included (known limitation, not fixed).** A
+  session is one SQLite transaction, so if the process dies after some simulated fills, those
+  fills vanish and a re-run trades again on later books. A real broker would keep those fills.
+  This is honest only because nothing real is traded and the re-run's fills are on genuinely
+  later books; it does give a crashed-and-rerun day a second look at prices. If crashes happen,
+  look for them (a journal error with no `session_finished`) before trusting that day.
+- **Sessions are pinned to the clock.** A run more than `max_late_secs` (2 h) after the
+  scheduled time logs that day as `session_missed`; a run before it does nothing. The universe
+  window is measured from the scheduled time, not from "now", so late runs leave no gaps.
+- **Dry runs never touch a live fund's ledger.** `--dry-run` on a ledger holding the fund is
+  refused (it would show the next trades with no trace); use a scratch `--ledger` path.
 
 ## Research pitfalls (each of these produced a wrong or misleading number once)
 - **Never anchor a horizon to the realized resolution time.** "N days before close" using a
