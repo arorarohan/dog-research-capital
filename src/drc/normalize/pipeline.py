@@ -4,7 +4,13 @@ Output layout:  <norm>/<table>/venue=<v>/date=<YYYY-MM-DD>/hour=<HH>.parquet
 Tables: `trades`, `book_events` (see rows.py). Re-running an hour overwrites its output, so the
 pipeline is idempotent; an hour is skipped only if its output is newer than every input.
 
-`epoch` is the receive-timestamp (ns) of the latest `connect` event at or before a message. It
+A table with no rows for an hour has no Parquet file; instead an empty marker
+`hour=<HH>.empty` sits at the same path. So every normalized hour has, per table, exactly one of
+`.parquet` or `.empty`; neither means normalization has not (successfully) run for that hour.
+`drc-sync expire-remote` relies on this to never delete raw whose Parquet does not exist (#27).
+
+`epoch` is the receive-timestamp (ns) of the latest `connect` event at or before a message that
+covers the row's symbol (see `Epochs`: venue-wide, or per symbol for sharded connections). It
 changes whenever the recorder reconnects, so it is a hard resync boundary for book replay and
 never needs to be recomputed when new data arrives.
 """
@@ -38,11 +44,55 @@ CHANNEL_ORDER = {key: i for i, key in enumerate(PARSERS)}
 PARQUET_ZSTD_LEVEL = 19
 
 
-def connect_times(raw_root: Path, venue: str) -> list[int]:
-    out: list[int] = []
+class Epochs:
+    """The epoch of each symbol at any receive time.
+
+    A `connect` event without `assets` (every venue except sharded Polymarket, and all data
+    recorded before #23) starts a new epoch for the whole venue. A `connect` or `subscribe` event
+    with `assets` starts one only for those symbols: Polymarket runs several connections, and one
+    of them reconnecting must not reset books streamed on the others. A symbol's epoch is the
+    latest event at or before the message that covers it.
+    """
+
+    def __init__(self, venue_wide: list[int], scoped: dict[str, list[int]] | None = None) -> None:
+        self.venue_wide = sorted(venue_wide)
+        self.scoped = {s: sorted(ts) for s, ts in (scoped or {}).items()}
+        self._cache: dict[str, tuple[int, int, int]] = {}  # symbol -> (valid from, until, epoch)
+
+    @staticmethod
+    def _latest(times: list[int], ts: int) -> tuple[int, int]:
+        """(latest time <= ts or 0, next time > ts or +inf as a huge int)."""
+        i = bisect.bisect_right(times, ts)
+        return (times[i - 1] if i else 0), (times[i] if i < len(times) else 1 << 62)
+
+    def at(self, symbol: str, ts: int) -> int:
+        hit = self._cache.get(symbol)
+        if hit is not None and hit[0] <= ts < hit[1]:
+            return hit[2]
+        epoch, until = self._latest(self.venue_wide, ts)
+        lo = epoch
+        if (own := self.scoped.get(symbol)) is not None:
+            e, u = self._latest(own, ts)
+            epoch, lo, until = max(epoch, e), max(lo, e), min(until, u)
+        self._cache[symbol] = (lo, until, epoch)
+        return epoch
+
+
+def load_epochs(raw_root: Path, venue: str) -> Epochs:
+    venue_wide: list[int] = []
+    scoped: dict[str, list[int]] = {}
     for p in sorted((raw_root / venue / META_CHANNEL).rglob("*.jsonl*")):
-        out += [r["t"] for r in read_lines(p) if r.get("ev") == "connect"]
-    return sorted(out)
+        for r in read_lines(p):
+            if r.get("ev") not in ("connect", "subscribe"):
+                continue
+            assets = r.get("assets")
+            if assets is None:
+                if r["ev"] == "connect":
+                    venue_wide.append(r["t"])
+            else:
+                for a in assets:
+                    scoped.setdefault(a, []).append(r["t"])
+    return Epochs(venue_wide, scoped)
 
 
 def _hour_files(raw_root: Path, venue: str, date: str, hour: int) -> dict[str, Path]:
@@ -87,6 +137,21 @@ def list_hours(raw_root: Path, venue: str) -> list[tuple[str, int]]:
 
 def out_path(norm_root: Path, table: str, venue: str, date: str, hour: int) -> Path:
     return norm_root / table / f"venue={venue}" / f"date={date}" / f"hour={hour:02d}.parquet"
+
+
+def empty_marker(norm_root: Path, table: str, venue: str, date: str, hour: int) -> Path:
+    return out_path(norm_root, table, venue, date, hour).with_suffix(".empty")
+
+
+def _table_done(norm_root: Path, table: str, venue: str, date: str, hour: int, newest: float):
+    """True if this table's output for the hour (Parquet or empty marker) is newer than the raw."""
+    return any(
+        p.exists() and p.stat().st_mtime >= newest
+        for p in (
+            out_path(norm_root, table, venue, date, hour),
+            empty_marker(norm_root, table, venue, date, hour),
+        )
+    )
 
 
 # Rows are accumulated in Python lists and turned into a polars chunk every CHUNK_ROWS, so peak
@@ -146,19 +211,20 @@ class _Table:
 
 
 def _build(
-    records, venue: str, connects: list[int], stats: HourStats | None = None
+    records, venue: str, epochs: Epochs, stats: HourStats | None = None
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Parse receive-ordered records into the `trades` and `book_events` frames, tallying every
     message into `stats` (parsed / empty / unparseable)."""
     trades, book = _Table(TRADES_SCHEMA, CHUNK_ROWS), _Table(BOOK_EVENTS_SCHEMA, CHUNK_ROWS)
     stats = stats or HourStats()
     msg_id = 0
+    per_symbol = bool(epochs.scoped)
     for ts_recv, _, _, channel, msg in records:
         table, parse = PARSERS[(venue, channel)]
         cs = stats.channel(channel)
         cs.raw += 1
-        i = bisect.bisect_right(connects, ts_recv)
-        epoch = connects[i - 1] if i else 0
+        if not per_symbol:
+            epoch = epochs.at("", ts_recv)
         try:
             rows = list(parse(msg))
         except (KeyError, ValueError, TypeError) as e:
@@ -191,7 +257,7 @@ def _build(
                 cols["size"].append(row.size)
             cols["venue"].append(venue)
             cols["symbol"].append(row.symbol)
-            cols["epoch"].append(epoch)
+            cols["epoch"].append(epochs.at(row.symbol, ts_recv) if per_symbol else epoch)
             cols["ts_recv"].append(ts_recv)
             cols["ts_exch"].append(row.ts_exch)
         trades.maybe_flush()
@@ -215,14 +281,16 @@ def normalize_hour(
                 log.error("%s %s %02d: %s", venue, date, hour, problem)
             write_sidecar(norm_root, venue, date, hour, stats)
         return {}
-    outs = [out_path(norm_root, t, venue, date, hour) for t in ("trades", "book_events")]
     newest_input = max(p.stat().st_mtime for p in files.values())
     # An hour with no accounting sidecar (normalized before #20) is redone once, so it gets one.
-    done = all(o.exists() and o.stat().st_mtime >= newest_input for o in outs)
+    done = all(
+        _table_done(norm_root, t, venue, date, hour, newest_input)
+        for t in ("trades", "book_events")
+    )
     if not force and done and sidecar_path(norm_root, venue, date, hour).exists():
         return {}
 
-    connects = connect_times(raw_root, venue)
+    epochs = load_epochs(raw_root, venue)
     # Each channel file is normally in receive-time order, so a k-way merge yields the same global
     # order as sorting everything while holding one record per channel. A file that is not (Kalshi
     # books carry explicit times) is materialised and sorted on its own; the others stay lazy.
@@ -241,9 +309,7 @@ def normalize_hour(
                     streams.append(iter(records))
                 else:
                     streams.append(_channel_stream(venue, ch, p, strict=True, bad=bads[ch]))
-            trades_df, book_df = _build(
-                heapq.merge(*streams, key=_sort_key), venue, connects, stats
-            )
+            trades_df, book_df = _build(heapq.merge(*streams, key=_sort_key), venue, epochs, stats)
             break
         except _Unsorted as e:
             in_memory.add(e.channel)
@@ -263,10 +329,13 @@ def normalize_hour(
         counts[name] = df.height
         stats.rows[name] = df.height
         path = out_path(norm_root, name, venue, date, hour)
+        marker = empty_marker(norm_root, name, venue, date, hour)
+        path.parent.mkdir(parents=True, exist_ok=True)
         if df.height == 0:
             path.unlink(missing_ok=True)
+            marker.touch()
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
+        marker.unlink(missing_ok=True)
         tmp = path.with_suffix(".tmp")
         df.write_parquet(tmp, compression="zstd", compression_level=PARQUET_ZSTD_LEVEL)
         tmp.replace(path)

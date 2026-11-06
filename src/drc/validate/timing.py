@@ -88,18 +88,19 @@ class GapReport:
 
 
 def _outages(raw_root: Path, venue: str) -> list[tuple[int, int]]:
-    """(disconnect, next connect) windows from the recorder's own event log."""
+    """(disconnect, next connect) windows from the recorder's own event log. Sharded venues
+    (Polymarket runs several connections) are paired per shard; any shard being down counts."""
     events = []
     for f in sorted((raw_root / venue / META_CHANNEL).glob("*/*.jsonl*")):
-        events += [(r["t"], r["ev"]) for r in read_lines(f) if "ev" in r]
-    events.sort()
-    out, down = [], None
-    for t, ev in events:
-        if ev in ("disconnect", "shutdown") and down is None:
-            down = t
-        elif ev == "connect" and down is not None:
-            out.append((down, t))
-            down = None
+        events += [(r["t"], r["ev"], r.get("shard")) for r in read_lines(f) if "ev" in r]
+    events.sort(key=lambda e: e[0])
+    out: list[tuple[int, int]] = []
+    down: dict[object, int] = {}
+    for t, ev, shard in events:
+        if ev in ("disconnect", "shutdown") and shard not in down:
+            down[shard] = t
+        elif ev == "connect" and shard in down:
+            out.append((down.pop(shard), t))
     return out
 
 

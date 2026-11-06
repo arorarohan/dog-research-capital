@@ -9,13 +9,13 @@ in receive order, with two things the exchange sends us:
    message changes several levels of the same asset).
 2. Every `book` message after an asset's first: a full snapshot, compared level by level with
    what replaying the earlier messages produced.
-Resets on reconnect (`_meta` connect events), exactly like `drc.market.replay`. Updates for an
-asset with no snapshot yet in the epoch are skipped and counted (never applied to an empty book).
+Books reset per symbol when its connection reconnects (`_meta` events, as `Epochs` in the
+pipeline). Updates for an asset with no snapshot yet in the epoch are skipped and counted
+(never applied to an empty book).
 """
 
 from __future__ import annotations
 
-import bisect
 import heapq
 import sys
 from collections import defaultdict
@@ -24,7 +24,7 @@ from pathlib import Path
 
 from drc.market.book import Book
 from drc.normalize.parsers import polymarket_book, polymarket_price_change
-from drc.normalize.pipeline import connect_times
+from drc.normalize.pipeline import load_epochs
 from drc.recorder.writer import read_lines
 
 VENUE = "polymarket"
@@ -72,19 +72,23 @@ def _top(book: Book):
 
 def check(raw_root: Path, max_examples: int = 5) -> Result:
     res = Result()
-    connects = connect_times(raw_root, VENUE)
+    epochs = load_epochs(raw_root, VENUE)
     merged = heapq.merge(
         _stream(raw_root, "book"), _stream(raw_root, "price_change"), key=lambda x: x[0]
     )
     books: dict[str, Book] = defaultdict(Book)
     synced: set[str] = set()
-    epoch = None
+    epoch_of: dict[str, int] = {}
+
+    def resync(sym: str, t: int) -> None:
+        """A symbol's book is forgotten when its epoch changes (a reconnect of its connection)."""
+        e = epochs.at(sym, t)
+        if epoch_of.get(sym) != e:
+            epoch_of[sym] = e
+            synced.discard(sym)
+            books.pop(sym, None)
+
     for t, channel, msg in merged:
-        i = bisect.bisect_right(connects, t)
-        e = connects[i - 1] if i else 0
-        if e != epoch:
-            epoch, synced = e, set()
-            books.clear()
         if channel == "book":
             # group the parser's rows by asset: each asset's reset starts its snapshot
             fresh: dict[str, Book] = {}
@@ -94,6 +98,7 @@ def check(raw_root: Path, max_examples: int = 5) -> Result:
                 else:
                     fresh[row.symbol].set_level(row.side, row.price, row.size)
             for sym, new in fresh.items():
+                resync(sym, t)
                 if sym in synced:
                     old = books[sym]
                     res.snapshots += 1
@@ -112,6 +117,7 @@ def check(raw_root: Path, max_examples: int = 5) -> Result:
             items = msg["price_changes"]
             ok_item = {}
             for row, item in zip(rows, items, strict=True):
+                resync(row.symbol, t)
                 if row.symbol not in synced:
                     res.top_skipped_unsynced += 1
                     continue

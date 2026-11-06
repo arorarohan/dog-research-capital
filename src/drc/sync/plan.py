@@ -15,11 +15,17 @@ from __future__ import annotations
 import calendar
 import json
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from drc.normalize.parsers import PARSERS
 
 RAW_ROOTS = ("raw", "raw_forward", "raw_weather")
 NORM_ROOTS = ("norm", "norm_forward")
+NORM_FOR_RAW = {"raw": "norm", "raw_forward": "norm_forward"}  # raw_weather has no normalizer
+NORM_TABLES = ("trades", "book_events")
+PARSED_CHANNELS = frozenset(PARSERS)  # (venue, channel) pairs the normalizer consumes
 DAY = 86400
 IDLE_SECS = 900  # a plain file untouched this long is finished (nobody is writing to it)
 
@@ -32,6 +38,7 @@ class RawFile:
     date: str
     hour: int
     size: int
+    host: str = ""  # only known for files listed from the archive
 
     @property
     def rel(self) -> str:
@@ -47,7 +54,7 @@ class RawFile:
         return calendar.timegm(time.strptime(self.date, "%Y-%m-%d")) + DAY
 
 
-def parse_raw_rel(root: str, rel: str, size: int = 0) -> RawFile | None:
+def parse_raw_rel(root: str, rel: str, size: int = 0, host: str = "") -> RawFile | None:
     parts = rel.split("/")
     if len(parts) != 4 or not parts[3].endswith(".jsonl.zst"):
         return None
@@ -56,7 +63,7 @@ def parse_raw_rel(root: str, rel: str, size: int = 0) -> RawFile | None:
         time.strptime(parts[2], "%Y-%m-%d")
     except ValueError:
         return None
-    return RawFile(root, parts[0], parts[1], parts[2], hour, size)
+    return RawFile(root, parts[0], parts[1], parts[2], hour, size, host)
 
 
 def local_raw_files(data: Path) -> list[RawFile]:
@@ -73,14 +80,15 @@ def local_raw_files(data: Path) -> list[RawFile]:
 
 
 def local_norm_rels(data: Path, root: str) -> list[str]:
-    """Hourly normalized Parquet only. The per-venue 1s bar files are derived and rewritten
-    constantly, so they are not archived."""
+    """Hourly normalized Parquet and its empty markers (`hour=HH.empty`, see normalize/pipeline).
+    The per-venue 1s bar files are derived and rewritten constantly, so they are not archived."""
     base = data / root
     if not base.is_dir():
         return []
     return sorted(
         f.relative_to(base).as_posix()
-        for f in base.rglob("hour=*.parquet")
+        for pat in ("hour=*.parquet", "hour=*.empty")
+        for f in base.rglob(pat)
         if "bars_1s" not in f.relative_to(base).parts
     )
 
@@ -120,16 +128,31 @@ class Expiry:
     total_bytes: int
     kept_bytes: int
     cap_bytes: int
+    blocked: list[RawFile] = field(default_factory=list)  # would expire, but not normalized
+
+    @property
+    def cap_met(self) -> bool:
+        return self.kept_bytes <= self.cap_bytes
 
 
-def plan_expiry(files: list[RawFile], now: float, max_age_days: float, cap_bytes: int) -> Expiry:
+def plan_expiry(
+    files: list[RawFile],
+    now: float,
+    max_age_days: float,
+    cap_bytes: int,
+    allowed: Callable[[RawFile], bool] = lambda f: True,
+) -> Expiry:
     """Which raw files to delete from the archive.
 
     1. Anything whose day ended more than `max_age_days` ago.
     2. If what remains still exceeds `cap_bytes`, the oldest days go first until it fits.
     Exempt channels (catalogs, metadata) never expire, but they do count toward the total.
+    `allowed(f)` is the safety guard (#27): a file it rejects is never deleted by either rule and
+    is listed in `blocked`; if that keeps the archive over the cap, `cap_met` is False.
     """
-    by_age = [f for f in files if not f.exempt and older_than(f, max_age_days, now)]
+    aged = [f for f in files if not f.exempt and older_than(f, max_age_days, now)]
+    by_age = [f for f in aged if allowed(f)]
+    blocked = {f for f in aged if not allowed(f)}
     gone = set(by_age)
     left = [f for f in files if f not in gone]
     total = sum(f.size for f in left)
@@ -138,9 +161,51 @@ def plan_expiry(files: list[RawFile], now: float, max_age_days: float, cap_bytes
         for f in sorted((f for f in left if not f.exempt), key=lambda f: (f.date, f.hour)):
             if total <= cap_bytes:
                 break
+            if not allowed(f):
+                blocked.add(f)
+                continue
             by_cap.append(f)
             total -= f.size
-    return Expiry(by_age, by_cap, sum(f.size for f in files), total, cap_bytes)
+    return Expiry(
+        by_age, by_cap, sum(f.size for f in files), total, cap_bytes,
+        sorted(blocked, key=lambda f: (f.host, f.root, f.venue, f.date, f.hour, f.channel)),
+    )  # fmt: skip
+
+
+NormKey = tuple[str, str, str, str, int, str]  # host, norm root, venue, date, hour, table
+
+
+def parse_norm_listing(lsjson_text: str) -> set[NormKey]:
+    """Archive listing -> which (host, norm root, venue, date, hour, table) outputs exist, as
+    Parquet or as an empty marker. Paths look like
+    `<host>/norm/<root>/<table>/venue=V/date=D/hour=HH.parquet` (or `.empty`)."""
+    out: set[NormKey] = set()
+    for item in json.loads(lsjson_text or "[]"):
+        parts = item["Path"].split("/")
+        if len(parts) != 7 or parts[1] != "norm" or parts[3] not in NORM_TABLES:
+            continue
+        name, _, ext = parts[6].rpartition(".")
+        if ext not in ("parquet", "empty") or not name.startswith("hour="):
+            continue
+        if not (parts[4].startswith("venue=") and parts[5].startswith("date=")):
+            continue
+        try:
+            hour = int(name[5:])
+        except ValueError:
+            continue
+        out.add((parts[0], parts[2], parts[4][6:], parts[5][5:], hour, parts[3]))
+    return out
+
+
+def is_normalized(f: RawFile, norm: set[NormKey]) -> bool:
+    """May this raw file be deleted from the archive? Only if every normalized table for its
+    (host, venue, date, hour) is on the archive as Parquet or as an explicit empty marker.
+    Channels the normalizer does not read, and raw roots it does not cover (weather), have no
+    Parquet counterpart to wait for, so the policy alone decides for them."""
+    norm_root = NORM_FOR_RAW.get(f.root)
+    if norm_root is None or (f.venue, f.channel) not in PARSED_CHANNELS:
+        return True
+    return all((f.host, norm_root, f.venue, f.date, f.hour, t) in norm for t in NORM_TABLES)
 
 
 def parse_remote_listing(lsjson_text: str) -> list[tuple[str, RawFile]]:
@@ -152,7 +217,7 @@ def parse_remote_listing(lsjson_text: str) -> list[tuple[str, RawFile]]:
         parts = path.split("/")
         if len(parts) < 7 or parts[1] != "raw":
             continue
-        rf = parse_raw_rel(parts[2], "/".join(parts[3:]), int(item.get("Size", 0)))
+        rf = parse_raw_rel(parts[2], "/".join(parts[3:]), int(item.get("Size", 0)), parts[0])
         if rf:
             out.append((path, rf))
     return out

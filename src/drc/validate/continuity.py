@@ -21,7 +21,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from drc.normalize.pipeline import connect_times
+from drc.normalize.pipeline import load_epochs
 from drc.recorder.writer import read_lines
 
 
@@ -41,7 +41,7 @@ class SequenceResult:
 
 def coinbase_sequence(raw_root: Path) -> SequenceResult:
     res = SequenceResult()
-    connects = connect_times(raw_root, "coinbase")
+    connects = load_epochs(raw_root, "coinbase").venue_wide
     chans = [
         _stream(raw_root, "coinbase", c) for c in ("l2_data", "market_trades", "subscriptions")
     ]
@@ -82,7 +82,7 @@ def _trade_ids(raw_root: Path, venue: str):
 
 def trade_id_continuity(raw_root: Path, venue: str) -> IdResult:
     res = IdResult()
-    connects = connect_times(raw_root, venue)
+    connects = load_epochs(raw_root, venue).venue_wide
     seen: dict[str, dict[int, int]] = defaultdict(dict)  # symbol -> id -> first receive time
     for t, sym, tid in _trade_ids(raw_root, venue):
         res.trades += 1

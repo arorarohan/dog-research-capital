@@ -21,6 +21,7 @@ deadline_max_days = 7
 min_volume = 50000
 max_markets = 400
 refresh_secs = 3600
+shard_size = 200   # tokens per websocket; one connection for ~800 tokens hit 1013 closes (#23)
 
 [kalshi]
 enabled = true
