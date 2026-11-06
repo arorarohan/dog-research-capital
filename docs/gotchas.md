@@ -108,4 +108,14 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   Run `ruff check` and `ruff format --check` too (CI does).
 - `ruff format` rewraps code, so scripted string-replace edits of formatted files can silently
   miss. Check that an edit applied before committing.
-- **Recorder disk caps can delete data nobody has backed up.** `max_total_gb` prunes the oldest days of channels that have a retention rule, with no idea whether they were uploaded. Polymarket `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before relying on it.
+- **Kalshi's public API 429s on bursts, from any IP.** Firing one request per market at once
+  (84 weather brackets plus trades) failed 16% of requests (41 of 255, measured 2026-11-04 from a
+  home connection and from the Oracle VM alike), and each failure silently dropped that market's
+  book for the cycle. The poller now paces all Kalshi requests to `max_rps` (default 5) and
+  retries 429s with `Retry-After`; the same 255 requests then all succeeded. A throttled-and-
+  recovered request is logged as a `throttled` meta event, so look for those.
+- **Recorder disk caps can delete data nobody has backed up.** `max_total_gb` prunes the oldest
+  days of channels that have a retention rule, with no idea whether they were uploaded. Polymarket
+  `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently
+  deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before
+  relying on it.
