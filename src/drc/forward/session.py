@@ -13,7 +13,8 @@ A session, in order, inside ONE event-log transaction (all of its events or none
 7. drawdown check, reconciliation, `session_finished` with a summary.
 
 Re-running a finished session is a no-op. A crash rolls the whole session back, so a re-run
-starts clean. `--dry-run` runs everything, prints the summary, then rolls back.
+starts clean. `--dry-run` runs everything, prints the summary, then rolls back; it is refused
+on a ledger that already holds the fund (no untraced peeks at a live fund's next trades).
 """
 
 from __future__ import annotations
@@ -162,6 +163,12 @@ def run_session(
                 lambda tok: fees.get(tok, PolymarketFee()),
                 clock=clock,
             )
+            if dry_run and "fund_created" in fund.state.seen_types:
+                # a dry run on a live fund's ledger would show today's trades with no trace
+                raise CharterError(
+                    f"--dry-run against a ledger that holds live fund {fid} is not allowed; "
+                    "dry-run on a scratch ledger (--ledger /tmp/scratch.sqlite) instead"
+                )
             done = {e.session_id for e in log_.events(fund_id=fid, types=["session_finished"])}
             if sid in done:
                 res.status = "already_ran"
@@ -459,7 +466,12 @@ def dirty_paths(git: Callable[..., str] | None = None) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="drc-session", description=__doc__.splitlines()[0])
     ap.add_argument("--fund", required=True, help="fund id; reads funds/<fund>.toml")
-    ap.add_argument("--dry-run", action="store_true", help="run everything, write nothing")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run everything, write nothing; refused on a ledger that holds the (live) fund, "
+        "so point --ledger at a scratch path (a missing path means an in-memory ledger)",
+    )
     ap.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
     ap.add_argument("--funds-dir", type=Path, default=DEFAULT_FUNDS)
     args = ap.parse_args(argv)

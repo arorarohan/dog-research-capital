@@ -220,6 +220,38 @@ def test_ledger_refuses_a_second_fund_created_or_session_finished(tmp_path):
     assert log.verify().ok
 
 
+def _log_with_live_fund(charter, tmp_path):
+    clock = Clock()
+    venue = FakeVenue(clock)
+    standard_day(venue, T0)
+    log = EventLog(tmp_path / "ledger" / "events.sqlite", clock=clock)
+    run_session(charter, log, venue, clock=clock, sleep=clock.sleep)
+    return clock, venue, log
+
+
+# ---- 4. no silent dry-run peeks at a live fund ---------------------------------------------
+
+
+def test_dry_run_against_a_ledger_holding_the_fund_is_refused(frozen, tmp_path):  # noqa: F811
+    clock, venue, log = _log_with_live_fund(frozen, tmp_path)
+    n = len(log.events())
+    clock.set(T0.replace(day=7))
+    standard_day(venue, T0.replace(day=7))
+    with pytest.raises(CharterError, match="scratch"):
+        run_session(frozen, log, venue, clock=clock, sleep=clock.sleep, dry_run=True)
+    assert len(log.events()) == n
+
+
+def test_cli_dry_run_refuses_the_live_ledger(frozen, tmp_path, capsys, monkeypatch):  # noqa: F811
+    _, _, log = _log_with_live_fund(frozen, tmp_path)
+    log.close()
+    funds = _frozen_funds_dir(tmp_path)
+    monkeypatch.setattr(sess, "PolymarketHttp", lambda: FakeVenue(Clock()))
+    rc = sess.main(["--fund", "pm-sched-gap-v1", "--funds-dir", str(funds), "--dry-run",
+                    "--ledger", str(tmp_path / "ledger" / "events.sqlite")])  # fmt: skip
+    assert rc == 2 and "scratch" in capsys.readouterr().err
+
+
 def test_cli_ledger_lock_refuses_a_concurrent_run(tmp_path):
     p = tmp_path / "e.sqlite"
     with sess.ledger_lock(p):
