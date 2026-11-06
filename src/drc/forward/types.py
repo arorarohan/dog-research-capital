@@ -16,8 +16,9 @@ class BookSnapshot:
     """One venue's order book for one token at one instant (our local receive time, ns).
 
     `bids` are sorted best (highest) first, `asks` best (lowest) first. `tick` and `min_size`
-    come from the venue per market; the defaults are placeholders until Slice 1 reads them
-    from the venue's book response.
+    come from the venue per market: sessions always set them from the book response
+    (`drc.forward.polymarket.parse_book`: `tick_size` 0.01 or 0.001, `min_order_size` 5 on
+    every market seen 2026-11-06). The defaults exist only for unit tests.
     """
 
     token: str
