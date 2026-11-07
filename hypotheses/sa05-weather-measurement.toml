@@ -1,0 +1,21 @@
+id = "sa05-weather-measurement"
+aliases = ["SA5"]
+title = "Forecast the thermometer's publishing pipeline (rounding / climate product) for weather brackets"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 5: model display rounding and the official climate-report functional for one station; trade
+brackets where naive display-to-settlement conversion puts mass on the wrong integer.
+"""
+rule_frozen = false
+kill_criterion = """
+Correct processing is already universal, boundary days show no signed errors, or the correction
+is smaller than spread and fees.
+"""
+notes = """
+Memo priority: Start. First step: one station, 20 boundary days. Thin books (see H2) limit size.
+"""

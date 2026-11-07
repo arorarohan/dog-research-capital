@@ -1,0 +1,18 @@
+id = "econ-release-markets"
+title = "Economic-release markets (CPI, jobs) are mispriced versus a nowcast"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 10: compare CPI/jobs bracket prices with a public nowcast, net of costs.
+"""
+rule_frozen = false
+kill_criterion = """
+Nowcast Brier no better than market price.
+"""
+notes = """
+Few independent releases (strikes are not sample size). See also sa07-release-vintages.
+"""

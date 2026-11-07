@@ -1,0 +1,21 @@
+id = "sa07-release-vintages"
+aliases = ["SA7"]
+title = "Couple first-release, revised, rounded and derived economic quantities"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 7: compile contracts into source x series x vintage x transformation x rounding; trade the
+basket Yes B + No A when the threshold-crossing revision probability is mispriced.
+"""
+rule_frozen = false
+kill_criterion = """
+All contracts use the same release, transformations leave no disagreement, or revision crossings
+have no reliable sign.
+"""
+notes = """
+Memo priority: Next.
+"""

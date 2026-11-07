@@ -1,0 +1,22 @@
+id = "sa02-silence-likelihood"
+aliases = ["SA2"]
+title = "Price silence using the probability that evidence would have appeared"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 2: model event time and reporting delay per source, with source-health state; buy No when a
+reliable, functioning public trace should have appeared and did not; buy Yes when the market
+over-reacts to absence during a known publication lag.
+"""
+rule_frozen = false
+kill_criterion = """
+Reports are selectively suppressed, publication policy changed, or evidence enters prices before
+we can observe it; the effect tracks only elapsed time.
+"""
+notes = """
+Memo priority: Start, attached to sa01.
+"""

@@ -41,3 +41,44 @@ stops with SIGINT so the open hour is flushed.
   this one. Never commit market data or secrets.
 - A deploy key or fine-grained token for pushing the ledger from the VM is a Slice 1 task.
 - No inbound ports are opened; reading results from outside comes with the web app phase.
+
+## Health check: `drc-status` (issue #31)
+One read-only command answers "is everything still running?":
+```
+uv run drc-status                 # the VM, over ssh: short summary, problems first
+uv run drc-status --json          # the same as JSON (for scripts / a future dashboard)
+uv run drc-status --local         # this laptop: Drive-auth age, disk, live Drive check
+uv run drc-status --local --verify rohan-laptop   # also hash-check local data vs Drive (slow)
+```
+Exit code: **0** all ok, **1** a warning, **2** an error (stale, failing, or VM unreachable),
+**64** bad config. Thresholds are in `config/status.toml`, each with a comment saying why.
+
+The ssh target defaults to the alias `drc-vm`; add it once to `~/.ssh/config` on the laptop
+(the IP stays out of the repo):
+```
+Host drc-vm
+    HostName <public ip>
+    User ubuntu
+    IdentityFile ~/.ssh/id_ed25519_drc
+```
+or pass `--ssh ubuntu@<ip> --ssh-key ~/.ssh/id_ed25519_drc` (or set `DRC_VM_SSH`/`DRC_VM_KEY`).
+ssh runs with `BatchMode=yes` and a 10 s connect timeout, so it never prompts or hangs; an
+unreachable VM is one `ERROR reachable ... UNREACHABLE` line, not a traceback.
+
+What it checks on the VM (ages use the VM's clock, not the laptop's; see `docs/gotchas.md`):
+| check | source | warn / error |
+|---|---|---|
+| recorder service | `systemctl show drc-record` | crash restarts / not active |
+| raw freshness | newest market-data file per venue in `data/raw_forward` | 10 / 30 min old |
+| feed gaps (24h) | `_meta` disconnect, shutdown, connect, poll_errors, throttled events | 10 / 50 gaps a day, any gap 120 s; 20 / 200 Kalshi poll errors |
+| 1013 closes | `journalctl -u drc-record`, `code=1013`, per UTC day for 7 days and since the recorder started | 3 / 20 in 24 h |
+| sync timer | `systemctl show drc-sync.timer` (also shows a cycle in progress) | - / not active+enabled |
+| last sync | last `=== cycle ok` in `journalctl -u drc-sync`; a later failure or `AUTH EXPIRED` | 2.5 / 6 h old |
+| archive verify | the latest `match= missing= differ= error=` lines of the sync log | - / anything missing, differing or errored |
+| drive auth | `~/.config/rclone/drc-authorized-at` | day 5 / day 7 (expired) |
+| disk | `df`, plus `data/raw_forward` against the recorder's `max_total_gb` | 80% or raw at 85% of the cap / 90% |
+
+Strictly read-only: on the VM it only runs `systemctl show`, `journalctl`, `find`, `cat`, `zstdcat`, `df`,
+`du` and `date` (a test enforces this). The live Drive check (`rclone about`) is opt-in on the VM
+(`--probe-drive`) because rclone may refresh its token and rewrite `rclone.conf` while doing it;
+it is on by default for `--local`.

@@ -1,0 +1,82 @@
+id = "kalshi-weather-longshot-no"
+aliases = ["H2"]
+title = "Kalshi weather longshots (< 15c) are overpriced: buy No"
+kind = "edge"
+status = "testing"
+proposed = 2026-10-23
+updated = 2026-10-25
+origin = "docs/findings/2026-10-23-weather-calibration.md"
+findings = [
+    "docs/findings/2026-10-23-weather-calibration.md",
+    "docs/findings/2026-10-25-forward-session-1.md",
+    "docs/findings/2026-11-06-multiple-testing.md",
+]
+rule = """
+Buying No on brackets priced under 15c at 24h or 12h before close earns a gross gap of at least
+1.0 point (win frequency below price by >= 1.0 pt) on city-days settling after 2026-10-23,
+pulled with the same procedure (4-hour lookback, 7 cities). Support: cluster-bootstrap CI
+entirely below -0.5 pts and point estimate <= -1.0, on at least 60 new city-days.
+"""
+rule_frozen = true
+kill_criterion = "On the new city-days the CI includes zero or the point estimate is above -0.5 pts."
+notes = """
+The pre-declared forward test has not been run yet (needs >= 60 new city-days). The pattern was
+found by looking at calibration tables and a zero-spread table added after the 2c results, so
+the discovery numbers below are exploratory. Even if H2 holds, trading needs a half-spread
+under ~1c; forward session 1 found 39.7% of longshot bar-time had no Yes bid (no taker No).
+"""
+
+[search]
+unrecorded_looks = 56
+note = """
+Calibration bins at 4 horizons (9 bins x 4 = 36, 2 recorded) and the post-hoc zero-spread table
+(24 combinations, 2 recorded).
+"""
+
+[[tests]]
+id = "disc-gap-lt5c-24h"
+date = 2026-10-23
+role = "exploratory"
+data = "7 cities, 2026-08-25 .. 10-22, 24h before close, priced < 5c"
+metric = "gap (win frequency - price), pts"
+direction = "negative"
+estimate = -1.4
+ci = [-1.8, -0.9]
+result = "pass"
+note = "Priced 1.9c, won 0.4%."
+
+[[tests]]
+id = "disc-gap-lt5c-12h"
+date = 2026-10-23
+role = "exploratory"
+data = "same, 12h before close"
+metric = "gap, pts"
+direction = "negative"
+estimate = -1.1
+ci = [-1.3, -0.8]
+result = "pass"
+note = "Priced 1.3c, won 0.2%."
+
+[[tests]]
+id = "disc-net-zero-spread-24h"
+date = 2026-10-23
+role = "exploratory"
+data = "24h, buy No where Yes < 15c, fee only (no spread)"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.1
+ci = [0.3, 1.9]
+result = "pass"
+note = "Post-hoc table (added after seeing the 2c results)."
+
+[[tests]]
+id = "disc-net-zero-spread-12h"
+date = 2026-10-23
+role = "exploratory"
+data = "12h, buy No where Yes < 15c, fee only"
+metric = "net cents per contract"
+direction = "positive"
+estimate = 1.0
+ci = [0.5, 1.5]
+result = "pass"
+note = "Post-hoc table."

@@ -1,0 +1,2 @@
+{"t":1792694648038856855,"m":{"channel":"subscriptions","timestamp":"2026-10-22T18:44:05.626742988Z","sequence_num":20,"events":[{"subscriptions":{"level2":["BTC-USD","ETH-USD"]}}]}}
+{"t":1792694648040646722,"m":{"channel":"subscriptions","timestamp":"2026-10-22T18:44:05.627339468Z","sequence_num":24,"events":[{"subscriptions":{"level2":["BTC-USD","ETH-USD"],"market_trades":["SOL-USD","BTC-USD"]}}]}}
