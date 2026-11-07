@@ -1,0 +1,20 @@
+id = "sa12-selective-absence"
+aliases = ["SA12"]
+title = "A specialist wallet's selective absence, conditional on observable activity"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 12: with a specialist active, funded and in comparable markets, test whether its
+non-participation improves a forecast already conditioned on price and wallet flow.
+"""
+rule_frozen = false
+kill_criterion = """
+Absence adds nothing given price, cash and activity, or the choice set is unobservable.
+"""
+notes = """
+Memo priority: Speculative; lowest identifiability.
+"""

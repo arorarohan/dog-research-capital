@@ -73,7 +73,10 @@ efficient; one apparent anomaly turned out to be our own lookahead.
       1.1c on the Polymarket strategy universe but only ~$45 median depth at the best ask; weather
       longshots often have no Yes bid (H2 not executable at the tails). More sessions needed.
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
-- [ ] Multiple-testing correction across the study set (deflated Sharpe style)
+- [x] Multiple-testing correction across the study set (2026-11-06, #30): `drc.research.multitest`
+      (Holm, BH, deflated Sharpe), hypothesis registry `hypotheses/` + `drc-registry`; 574 looks
+      counted. Only the scheduled-end gap's holdout replication survives every view; its net
+      trade survives the primary family only (`docs/findings/2026-11-06-multiple-testing.md`)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,
 power, kill criteria). Tier 1: deadline-market time decay, weather brackets, wallet flow.
 Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numbers.
@@ -98,7 +101,7 @@ construction, web app later. Design: `docs/design/forward-test-platform.md`. A t
       scheduling mechanism chosen, static HTML report
 - [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
       vs realized with the power note
-- [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
+- [ ] Later: run registry (hypothesis registry done 2026-11-06, `hypotheses/`); real web app on Rohan's domain with remote viewing
 Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
 treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
 cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).

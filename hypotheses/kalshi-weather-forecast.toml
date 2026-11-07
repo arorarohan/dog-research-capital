@@ -1,0 +1,21 @@
+id = "kalshi-weather-forecast"
+title = "Archived-forecast fair value beats Kalshi daily-high bracket prices"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 3: calibrated bracket probabilities from point-in-time archived model
+forecasts (Open-Meteo historical-forecast), compared with the crowd's price; trade where the gap
+clears fee and spread.
+"""
+rule_frozen = false
+kill_criterion = """
+Calibrated-forecast Brier no better than market price after the pre-declared calibration step.
+"""
+notes = """
+On hold since the price-only check (kalshi-weather-price-only) met its kill criterion at a 2c
+half-spread. Tail edges need a measured half-spread under ~1c.
+"""

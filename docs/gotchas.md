@@ -139,7 +139,9 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - **History that ends before the data you join it to silently serves stale values.** The
   digital dataset now drops rows whose spot candle is more than 150 s old.
 - **Many CIs => some false positives.** Pre-declare tests, report every combination, and treat
-  post-hoc pooling choices as hypotheses.
+  post-hoc pooling choices as hypotheses. Count every look in `hypotheses/` (`drc-registry`).
+  Correction is not enough: H1's discovery cell survived Bonferroni over all 574 looks and still
+  failed its holdout (`docs/findings/2026-11-06-multiple-testing.md`).
 
 - **Thin markets need a long sampling lookback.** Kalshi weather brackets trade a few times a day;
   a 120 s lookback found a trade for only a third of the moments and biased samples toward active

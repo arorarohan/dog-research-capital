@@ -20,6 +20,7 @@ drc-bars = "drc.market.build:main"
 drc-backtest = "drc.backtest.cli:main"
 drc-backfill = "drc.backfill.cli:main"
 drc-sync = "drc.sync.cli:main"
+drc-registry = "drc.research.registry_cli:main"
 
 [dependency-groups]
 dev = [
