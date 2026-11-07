@@ -99,11 +99,19 @@ construction, web app later. Design: `docs/design/forward-test-platform.md`. A t
       treasury/firm-total projections. Not yet wired to any venue or strategy (Slice 1).
 - [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
       scheduling mechanism chosen, static HTML report
+  - [x] `drc-session` built (2026-11-06, #11, PR #33): Gamma + CLOB `/book` behind an interface
+        (verified live, gotchas), every candidate logged with a reason, fills via `SimBroker` on
+        a book fetched 5 s after the decision, settlement on final resolution only, missed days
+        logged, idempotent re-runs, `--dry-run`. Live dry runs: 17 candidates, 1-3 trades/day.
+  - [ ] Rohan reviews and freezes `funds/pm-sched-gap-v1.toml` (DRAFT; sizing changed to $12
+        tickets because median ask depth is ~$45), then a daily timer on the VM
+  - [ ] Static HTML report (Slice 2 agent)
 - [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
       vs realized with the power note
 - [ ] Later: run registry (hypothesis registry done 2026-11-06, `hypotheses/`); real web app on Rohan's domain with remote viewing
 Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
-treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
+treasury, $10k/fund, $50-100 trades (the 2026-11-06 draft charter proposes $12 instead, since
+displayed depth is small: Rohan to confirm); charter v0 parameters accepted for review before freeze;
 cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).
 - [x] Cloud VM (2026-10-27, issue #12): Oracle London `drc-vm` (A1, 2 OCPU/12 GB/100 GB) running
       the recorder with `config/recorder-forward.toml` (PR #18). All five venues reachable.

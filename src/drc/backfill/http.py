@@ -25,11 +25,15 @@ class Client:
         self._last = time.monotonic()
 
     def get(self, path: str, **params) -> httpx.Response:
+        return self.get_query(path, params or None)
+
+    def get_query(self, path: str, query) -> httpx.Response:
+        """Like `get`, but `query` may be a list of (key, value) pairs, for repeated keys."""
         url = path if path.startswith("http") else f"{self.base}{path}"
         for attempt in range(self.retries):
             self._wait()
             try:
-                r = self._http.get(url, params=params or None)
+                r = self._http.get(url, params=query)
             except httpx.TransportError as e:
                 log.warning("transport error %r (attempt %d)", e, attempt + 1)
                 time.sleep(min(2**attempt, 30))
