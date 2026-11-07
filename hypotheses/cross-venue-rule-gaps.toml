@@ -1,0 +1,21 @@
+id = "cross-venue-rule-gaps"
+title = "Same-question gaps between venues with different rules/oracles (fresh quotes only)"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 4: match same-question markets across Kalshi and Polymarket, map rule and
+oracle differences, and trade quote gaps that exceed both venues' costs.
+"""
+rule_frozen = false
+kill_criterion = """
+No executable gap net of costs on synchronized quotes, or the gap is explained by rule
+differences that make the questions not equivalent.
+"""
+notes = """
+Overlaps structural-alpha idea 4 (sa04-rule-disagreement), which prices the disagreement set
+directly.
+"""

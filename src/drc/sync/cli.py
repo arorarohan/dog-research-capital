@@ -8,7 +8,8 @@
                                              its raw, check it equals the archived Parquet
     drc-sync verify [--what ...]             compare local files with the archive (size + hash)
     drc-sync status                          how many local files are not archived yet
-    drc-sync prune-local [--apply]           delete local raw that the archive has VERIFIED
+    drc-sync prune-local [--apply]           delete local raw that the archive has VERIFIED;
+                                             never deletes `_meta` or `_catalog`
     drc-sync expire-remote [--apply]         delete expired raw from the archive (dry run first);
                                              never deletes raw whose Parquet is not on the archive
 
@@ -181,9 +182,13 @@ class Archive:
 
     def prune_local(self, older_than_days: float, apply: bool, now: float) -> tuple[int, int]:
         """Delete local raw older than N days, but only files the archive confirms (hash match).
+        Never deletes exempt channels (`_meta`, `_catalog`): the normalizer derives epochs from
+        every old `_meta` connect, so losing them corrupts any later re-normalize (#41).
         Returns (deleted_or_would_delete, kept_unverified)."""
         old = [
-            f for f in plan.local_raw_files(self.data) if plan.older_than(f, older_than_days, now)
+            f
+            for f in plan.local_raw_files(self.data)
+            if not f.exempt and plan.older_than(f, older_than_days, now)
         ]
         deleted = kept = 0
         for root in plan.RAW_ROOTS:

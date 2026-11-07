@@ -1,0 +1,3 @@
+{"t":1792694646718192496,"m":{"method":"subscribe","result":{"channel":"book","depth":100,"snapshot":true,"symbol":"BTC/USD"},"success":true,"time_in":"2026-10-22T18:44:05.504166Z","time_out":"2026-10-22T18:44:05.504219Z"}}
+{"t":1792694646719364007,"m":{"method":"subscribe","result":{"channel":"book","depth":100,"snapshot":true,"symbol":"ETH/USD"},"success":true,"time_in":"2026-10-22T18:44:05.504166Z","time_out":"2026-10-22T18:44:05.504219Z"}}
+{"t":1792694646719406108,"m":{"method":"subscribe","result":{"channel":"book","depth":100,"snapshot":true,"symbol":"SOL/USD"},"success":true,"time_in":"2026-10-22T18:44:05.504166Z","time_out":"2026-10-22T18:44:05.504219Z"}}

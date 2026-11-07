@@ -89,6 +89,29 @@ Dropped: sports vs sharp sportsbook odds (competitive; historical odds are paid 
    count written down first.
 4. Decide on wallet flow (2) after seeing how much data a one-sector pilot needs.
 
+## Hypothesis registry and multiple testing (2026-11-06)
+
+Every hypothesis, tested or not, has a TOML file in `hypotheses/` (rule, kill criterion,
+status, findings, every test with its estimate/CI, and a count of cells looked at but not
+recorded). `uv run drc-registry table` prints the corrected significance table;
+`hypotheses/README.md` has the schema and method; `drc.research.multitest` has the
+corrections. First corrected view: `docs/findings/2026-11-06-multiple-testing.md`.
+
+Rules from now on (they extend selection principle 4):
+1. **Register before running.** Add or update the hypothesis file with `rule_frozen = true` and
+   status `testing` in a commit before the deciding data are looked at.
+2. **Count every look.** Each printed cell, horizon, band or spread is a test. Record the ones
+   the findings quote as `[[tests]]` and add the rest to `[search] unrecorded_looks`.
+3. **Report a CI (or p) for every number you quote**, so the registry can derive a p-value.
+   We never invent p-values.
+4. **Which correction decides.** A pre-declared primary test on unseen data is judged within
+   the primary family (Bonferroni over all primary tests run). Exploratory screens use BH
+   (false-discovery rate) to choose what to pre-declare next, never to declare an edge. The
+   all-looks Bonferroni and the deflated-Sharpe probability are the pessimistic bound; report
+   them alongside.
+5. Correction removes chance, not bias or wrong standard errors: holdouts, ex-ante universes
+   and point-in-time anchoring still come first.
+
 ## Additional conceptual research (2026-10-23)
 
 [Twelve structural-alpha proposals](research/2026-10-23-structural-alpha.md) develops process,
