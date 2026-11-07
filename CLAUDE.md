@@ -57,6 +57,7 @@ add to it whenever we learn something the hard way.
 - `src/drc/validate/` ground-truth checks on our data and reconstruction
 - `src/drc/forward/` forward-test platform: event log, SimBroker, funds, `drc-session`
   (see `docs/design/forward-test-platform.md`); `funds/` fund charters
+- `src/drc/report/` static HTML fund/firm reports from the event log
 - `docs/workflow.md` team git/PR/issue rules; `docs/onboarding.md` new-contributor setup
 - `.claude/` shared Claude Code settings and hooks (`settings.json`, `hooks/guard_main.py`)
 - `config/` TOML configs (what to record, retention)
@@ -70,3 +71,4 @@ add to it whenever we learn something the hard way.
 - `uv run drc-normalize` raw -> Parquet; `uv run drc-bars` Parquet -> 1s bars (`data/norm/bars_1s/`)
 - `uv run drc-session --fund pm-sched-gap-v1 [--dry-run]` one forward-test session (charter in
   `funds/`, event log `data/ledger/events.sqlite`; real runs need a frozen, committed charter)
+- `uv run drc-report [--ledger PATH] [--out DIR]` fund/firm HTML from the event log (`--sample` demo)
