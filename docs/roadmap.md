@@ -26,6 +26,10 @@ Status key: done / now / next / later / parked. Dates are absolute.
 - Validation against ground truth (Kraken checksums, crossed-book rate, trade-side check)
 - Backtester + ledger with conservative taker fills; baseline strategies prove costs bite
 - Learning library, gotchas, CLAUDE.md conventions
+- [x] Parser and normalization verification before raw expires (2026-11-06, #20): field accounting,
+      per-hour raw-vs-rows accounting that fails loudly, ground-truth checks per venue, fixtures;
+      results and gaps in `docs/validation.md`. Follow-ups: #35 (Kalshi trades still ~1.3% short),
+      #36 (keep ground-truth fields and tick-size changes in Parquet).
 
 ## Phase 1: Historical data layer (now)
 Goal: years of research data without running anything live.
@@ -69,7 +73,10 @@ efficient; one apparent anomaly turned out to be our own lookahead.
       1.1c on the Polymarket strategy universe but only ~$45 median depth at the best ask; weather
       longshots often have no Yes bid (H2 not executable at the tails). More sessions needed.
 - [ ] Consistency scans: ladder monotonicity, complement sums (hourly/daily Kalshi crypto series)
-- [ ] Multiple-testing correction across the study set (deflated Sharpe style)
+- [x] Multiple-testing correction across the study set (2026-11-06, #30): `drc.research.multitest`
+      (Holm, BH, deflated Sharpe), hypothesis registry `hypotheses/` + `drc-registry`; 574 looks
+      counted. Only the scheduled-end gap's holdout replication survives every view; its net
+      trade survives the primary family only (`docs/findings/2026-11-06-multiple-testing.md`)
 Candidate studies are ranked in `docs/research-plan.md` (selection principles, cost hurdles,
 power, kill criteria). Tier 1: deadline-market time decay, weather brackets, wallet flow.
 Exit: a written verdict per hypothesis (edge / no edge / inconclusive) with numbers.
@@ -92,11 +99,19 @@ construction, web app later. Design: `docs/design/forward-test-platform.md`. A t
       treasury/firm-total projections. Not yet wired to any venue or strategy (Slice 1).
 - [ ] Slice 1: `drc-session` for fund `pm-sched-gap-v1` (charter frozen before first trade),
       scheduling mechanism chosen, static HTML report
+  - [x] `drc-session` built (2026-11-06, #11, PR #33): Gamma + CLOB `/book` behind an interface
+        (verified live, gotchas), every candidate logged with a reason, fills via `SimBroker` on
+        a book fetched 5 s after the decision, settlement on final resolution only, missed days
+        logged, idempotent re-runs, `--dry-run`. Live dry runs: 17 candidates, 1-3 trades/day.
+  - [ ] Rohan reviews and freezes `funds/pm-sched-gap-v1.toml` (DRAFT; sizing changed to $12
+        tickets because median ask depth is ~$45), then a daily timer on the VM
+  - [ ] Static HTML report (Slice 2 agent)
 - [ ] Slice 2: firm page: allocated, NAV, PnL per fund, firm PnL incl. closed funds, predicted
       vs realized with the power note
-- [ ] Later: hypothesis/run registry; real web app on Rohan's domain with remote viewing
+- [ ] Later: run registry (hypothesis registry done 2026-11-06, `hypotheses/`); real web app on Rohan's domain with remote viewing
 Decided 2026-10-25: ledger backed up to private repo `arorarohan/drc-ledger` (created); $100k
-treasury, $10k/fund, $50-100 trades; charter v0 parameters accepted for review before freeze;
+treasury, $10k/fund, $50-100 trades (the 2026-11-06 draft charter proposes $12 instead, since
+displayed depth is small: Rohan to confirm); charter v0 parameters accepted for review before freeze;
 cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).
 - [x] Cloud VM (2026-10-27, issue #12): Oracle London `drc-vm` (A1, 2 OCPU/12 GB/100 GB) running
       the recorder with `config/recorder-forward.toml` (PR #18). All five venues reachable.
@@ -107,6 +122,9 @@ cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).
       Outstanding list with order is in `docs/sync.md` (own OAuth client first: rclone's shared
       one is retired during 2026).
 - [ ] Verify the parsers before raw expires (issue #20, priority)
+- [x] Ops status, minimal (2026-11-06, issue #31): `drc-status` checks recorder, feed gaps,
+      1013s, sync timer, verify, Drive-auth age and disk over ssh, read-only (`docs/deploy.md`).
+      The fuller operations console (scoping doc C) comes with the web app.
 - [x] Test length (2026-10-25): judge costs early; edge stays inconclusive until ~9,000 independent events (scoping doc Q11)
 
 ## Phase 5: Slow crypto book (later)

@@ -17,8 +17,39 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   parser changes.
 - **Depth-limited books (Kraken, depth 100) must be trimmed client-side**; the exchange never
   sends removals for levels that fall out of range.
+- **Re-normalizing one hour needs the venue's whole `_meta` history, not the hour's.** A row's
+  `epoch` is the latest connect at or before it, and Kalshi's poller logs a connect only at
+  start-up (the 2026-11-03 hours take theirs from 2026-10-28). Normalized with only the hour's
+  raw, every row of a Kalshi hour differed from the archive; with `_meta` it was identical
+  (restore drill, 2026-11-06). `drc-sync pull` selections fetch `_meta` for this reason; #41
+  stops `prune-local` deleting it.
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
+- **A recorder poll that fails must not advance its time window** (Kalshi trades, #20). The
+  window used to move forward before the request, so any 429 or timeout that outlasted the
+  retries lost that interval's trades for good (2.8-6.7% of trades on 429-heavy days). Anything
+  that polls "since the last poll" advances its cursor only after success and dedups by id.
+  Compare against the venue's own history (`drc.validate.kalshi`) after changing it.
+- **Stamp every channel with `writer.now_ns()`, never `time.time_ns()`** (Kalshi order books did,
+  #20): the raw wall clock steps backwards on WSL2 and puts that channel out of receive order,
+  and the normalizer then has to sort it in memory.
+- **A message with nothing to parse must be counted, not skipped.** Normalization tallies every
+  raw line per hour (`<norm>/_accounting`) and `drc-normalize` exits 1 on unparseable lines,
+  invalid JSON, or a raw channel nobody declared. Parsers raise on unknown sides/types instead of
+  defaulting (before: any non-`BUY` Polymarket change became an ask). A new exchange field or
+  channel fails `python -m drc.validate.fields` until it is added to `normalize/fieldmap.py`.
+- **Coinbase `sequence_num` is shared by all channels of a connection**: check it on the merged
+  stream (`drc.validate.continuity`); one channel alone shows thousands of false gaps.
+- **A gap that starts at the same instant on several venues is a local stall** (the process or
+  machine paused; 3.5 s on 2026-10-22), not a venue outage. Messages after it are stamped late,
+  not lost. Same-venue gaps next to a `disconnect` event are real blind spots.
+- **Polymarket replay differs from the exchange's best bid/ask by a tick about 1 time in 500**
+  for a few seconds (a `book` snapshot and its `price_change` arrive slightly out of order). Not
+  corruption: the next update to the level fixes it. Do not treat a one-tick top-of-book change
+  that reverts within seconds as signal.
+- **Hour files start mid-stream.** A Parquet hour holds updates for books that were snapshotted in
+  an earlier hour; load contiguous hours before replaying (replay drops, and counts, updates for
+  symbols with no snapshot yet in the epoch).
 
 ## Fees
 - **Polymarket fees are per market, and the docs table is only a summary.** Gamma returns
@@ -99,6 +130,57 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - Polars infers all-null columns (e.g. Kalshi `token_id`) as the Null type; always cast to the
   declared schema before merging frames.
 
+## Polymarket one-shot books and resolution (verified 2026-11-06, laptop and Oracle VM)
+- **`GET https://clob.polymarket.com/book?token_id=<id>` lists the best price LAST.** Bids come
+  ascending (0.01 first, best bid last), asks descending (0.99 first, best ask last). Taking
+  `[0]` as the best gives the worst level. Prices and sizes are strings. The body also has
+  `market` (condition id), `asset_id`, `timestamp` (ms string, server time of the response,
+  not of the last book change: two fetches seconds apart differ even when nothing traded),
+  `hash`, `tick_size` ("0.01" or "0.001", per market), `min_order_size` ("5" on every market
+  seen), `neg_risk`, `last_trade_price`. `drc.forward.polymarket.parse_book` sorts and converts.
+- **No book is a 404, not an empty book.** Unknown token or resolved market:
+  404 `{"error":"No orderbook exists for the requested token id"}`; missing `token_id`: 400.
+  `POST /books` with `[{"token_id": ...}, ...]` returns a list of the same objects.
+- **Rate limits are generous and throttle rather than reject** (docs, IP-based via Cloudflare):
+  `/book` 1,500 req/10s, `/books` 500/10s; Gamma `/markets` 300/10s, listings 900/10s. No
+  rate-limit headers are returned, so these are unverified by us; a session needs ~20-60
+  requests. One `/book` takes ~75 ms from the laptop; the first call from the VM took ~2.9 s.
+- **Gamma's token lookup silently hides closed markets.** `/markets?clob_token_ids=A&clob_token_ids=B`
+  returns only open ones; a resolved market comes back only with `closed=true` (and then open
+  ones are hidden). Settlement code must ask with `closed=true`, or it never sees a resolution.
+- **A market is settled only when** `closed` is true, `umaResolutionStatus == "resolved"` and
+  `outcomePrices` is exactly `["1","0"]` or `["0","1"]` (`["0.5","0.5"]` is a 50/50 split).
+  `umaResolutionStatuses` keeps the history (`proposed`, `proposed`, `resolved` = disputed once).
+  A closed market without those is still awaiting resolution; do not settle on last prices.
+- **Without a volume floor the 2.5-3.5 day window holds 3,000+ markets** (2026-11-06), mostly
+  tiny; with `volume_num_min=50000` it is ~17. Filter server-side.
+- **UNVERIFIED: a ~$1 minimum notional on marketable orders.** Secondary reports say Polymarket
+  rejects marketable (immediately-filling) orders under about $1. Checked 2026-11-06: the public
+  docs (docs.polymarket.com, "Place Orders") state only `min_order_size` in SHARES per market
+  (5 on every market we have seen) and no USDC minimum for limit or market (FOK/FAK) orders;
+  another docs page calls the Gamma field a USDC minimum, so the docs disagree. `SimBroker`
+  enforces only the share minimum. It matters little at our $12 tickets, but a depth-capped
+  5-share order at 5-19c is under $1. If anyone confirms the $1 rule, add it to the broker
+  (unfilled `below_min_notional`) and to the charter's sizing notes.
+
+## Forward-test sessions (drc-session)
+- **Do not judge latency by the wall clock you slept on.** The session sleeps its 5 s latency on
+  the monotonic clock, but `SimBroker` compares wall-clock times (fill book `ts` vs decision
+  `ts`); a backward wall-clock step during the sleep (see the WSL2 item above) rejected good
+  orders as `book_too_early` and burned the token. The session now also waits, capped at 30 s,
+  until the wall clock passes decision + latency + 0.5 s, and logs both clocks with the fill book.
+- **A crash rolls back the whole session, fills included (known limitation, not fixed).** A
+  session is one SQLite transaction, so if the process dies after some simulated fills, those
+  fills vanish and a re-run trades again on later books. A real broker would keep those fills.
+  This is honest only because nothing real is traded and the re-run's fills are on genuinely
+  later books; it does give a crashed-and-rerun day a second look at prices. If crashes happen,
+  look for them (a journal error with no `session_finished`) before trusting that day.
+- **Sessions are pinned to the clock.** A run more than `max_late_secs` (2 h) after the
+  scheduled time logs that day as `session_missed`; a run before it does nothing. The universe
+  window is measured from the scheduled time, not from "now", so late runs leave no gaps.
+- **Dry runs never touch a live fund's ledger.** `--dry-run` on a ledger holding the fund is
+  refused (it would show the next trades with no trace); use a scratch `--ledger` path.
+
 ## Research pitfalls (each of these produced a wrong or misleading number once)
 - **Never anchor a horizon to the realized resolution time.** "N days before close" using a
   market's actual close leaks the outcome whenever outcome and close time are linked (events
@@ -114,7 +196,9 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
 - **History that ends before the data you join it to silently serves stale values.** The
   digital dataset now drops rows whose spot candle is more than 150 s old.
 - **Many CIs => some false positives.** Pre-declare tests, report every combination, and treat
-  post-hoc pooling choices as hypotheses.
+  post-hoc pooling choices as hypotheses. Count every look in `hypotheses/` (`drc-registry`).
+  Correction is not enough: H1's discovery cell survived Bonferroni over all 574 looks and still
+  failed its holdout (`docs/findings/2026-11-06-multiple-testing.md`).
 
 - **Thin markets need a long sampling lookback.** Kalshi weather brackets trade a few times a day;
   a 120 s lookback found a trade for only a third of the moments and biased samples toward active
@@ -143,3 +227,7 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently
   deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before
   relying on it.
+- **Old `_meta` is needed to normalize new data.** A row's `epoch` comes from the last `connect`
+  in the venue's `_meta`, which can be days old (Kalshi logs a connect only at start-up). Delete
+  old `_meta` and a re-normalize silently gives epoch 0 to every row and overwrites good archived
+  Parquet. `_meta` and `_catalog` are never pruned locally or expired remotely (#41).

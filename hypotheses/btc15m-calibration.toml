@@ -1,0 +1,31 @@
+id = "btc15m-calibration"
+title = "Kalshi / Polymarket 15-minute BTC up/down contracts are miscalibrated"
+kind = "edge"
+status = "killed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/findings/2026-10-22-first-look.md"
+findings = ["docs/findings/2026-10-22-first-look.md"]
+rule = "Price-bin calibration at 7 moments before close on 664 Kalshi and 673 Polymarket markets (2026-10-15 .. 10-22)."
+rule_frozen = false
+kill_criterion = "Every bin's gap CI includes 0 (intervals about +-10 pts with 50-100 contracts per bin)."
+notes = """
+Killed as an edge at this resolution: well calibrated within +-10 pts, prices beat the base rate
+at every horizon. The only 'significant' bin (95-100%, all wins) was a collapsed-bootstrap
+artifact; the exact bound fixed it. Low prior anyway (contested market, research plan dropped
+it). Not evidence against a smaller edge.
+"""
+
+[search]
+unrecorded_looks = 126
+note = "2 venues x 7 moments x 9 price bins of calibration, none recorded individually."
+
+[[tests]]
+id = "brier-vs-base-rate"
+date = 2026-10-22
+role = "diagnostic"
+data = "664 Kalshi KXBTC15M + 673 Polymarket btc-updown-15m markets"
+metric = "Brier score"
+direction = "either"
+result = "descriptive"
+reported = { kalshi_brier_14m = 0.231, kalshi_brier_30s = 0.014, poly_brier_14m = 0.242, poly_brier_30s = 0.028 }

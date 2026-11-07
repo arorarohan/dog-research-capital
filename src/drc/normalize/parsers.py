@@ -23,13 +23,25 @@ def _f(x) -> float:
     return float(x)
 
 
+def _enum(value, allowed: dict, what: str):
+    """Map a venue enum through `allowed`; an unknown value raises (so it is counted as an
+    unparseable message) instead of silently becoming some default."""
+    try:
+        return allowed[value]
+    except KeyError:
+        raise ValueError(f"unknown {what} {value!r}") from None
+
+
+_SNAP_UPDATE = {"snapshot": True, "update": False}
+
+
 # ---- Coinbase Advanced Trade -------------------------------------------------------------
 
 
 def coinbase_l2(msg: dict) -> Iterator[BookRow]:
     for ev in msg.get("events", []):
         sym = ev["product_id"]
-        is_snap = ev["type"] == "snapshot"
+        is_snap = _enum(ev["type"], _SNAP_UPDATE, "coinbase l2 event type")
         if is_snap:
             yield BookRow(sym, iso_to_ns(msg["timestamp"]), "reset", None, None, None)
         for u in ev["updates"]:
@@ -37,7 +49,7 @@ def coinbase_l2(msg: dict) -> Iterator[BookRow]:
                 sym,
                 iso_to_ns(u["event_time"]),
                 "snapshot" if is_snap else "update",
-                "bid" if u["side"] == "bid" else "ask",  # 'offer' -> ask
+                _enum(u["side"], {"bid": "bid", "offer": "ask"}, "coinbase l2 side"),
                 _f(u["price_level"]),
                 _f(u["new_quantity"]),
             )
@@ -45,7 +57,7 @@ def coinbase_l2(msg: dict) -> Iterator[BookRow]:
 
 def coinbase_trades(msg: dict) -> Iterator[Trade]:
     for ev in msg.get("events", []):
-        replay = ev["type"] == "snapshot"
+        replay = _enum(ev["type"], _SNAP_UPDATE, "coinbase trades event type")
         for t in ev["trades"]:
             yield Trade(
                 t["product_id"],
@@ -53,7 +65,8 @@ def coinbase_trades(msg: dict) -> Iterator[Trade]:
                 iso_to_ns(t["time"]),
                 _f(t["price"]),
                 _f(t["size"]),
-                "sell" if t["side"] == "BUY" else "buy",  # venue labels the maker side
+                # the venue labels the maker side, so BUY means the aggressor sold
+                _enum(t["side"], {"BUY": "sell", "SELL": "buy"}, "coinbase trade side"),
                 replay,
             )
 
@@ -62,7 +75,7 @@ def coinbase_trades(msg: dict) -> Iterator[Trade]:
 
 
 def kraken_book(msg: dict) -> Iterator[BookRow]:
-    is_snap = msg["type"] == "snapshot"
+    is_snap = _enum(msg["type"], _SNAP_UPDATE, "kraken book type")
     for d in msg["data"]:
         sym = d["symbol"].replace("/", "-")
         ts = iso_to_ns(d["timestamp"]) if d.get("timestamp") else None
@@ -75,7 +88,7 @@ def kraken_book(msg: dict) -> Iterator[BookRow]:
 
 
 def kraken_trades(msg: dict) -> Iterator[Trade]:
-    replay = msg["type"] == "snapshot"
+    replay = _enum(msg["type"], _SNAP_UPDATE, "kraken trade type")
     for t in msg["data"]:
         yield Trade(
             t["symbol"].replace("/", "-"),
@@ -83,7 +96,7 @@ def kraken_trades(msg: dict) -> Iterator[Trade]:
             iso_to_ns(t["timestamp"]),
             _f(t["price"]),
             _f(t["qty"]),
-            t["side"],
+            _enum(t["side"], {"buy": "buy", "sell": "sell"}, "kraken trade side"),
             replay,
         )
 
@@ -104,7 +117,7 @@ def polymarket_book(msg: dict | list) -> Iterator[BookRow]:
 def polymarket_price_change(msg: dict) -> Iterator[BookRow]:
     ts = ms_to_ns(msg["timestamp"]) if msg.get("timestamp") else None
     for c in msg["price_changes"]:
-        side = "bid" if c["side"] == "BUY" else "ask"
+        side = _enum(c["side"], {"BUY": "bid", "SELL": "ask"}, "polymarket price_change side")
         yield BookRow(c["asset_id"], ts, "update", side, _f(c["price"]), _f(c["size"]))
 
 
@@ -115,7 +128,7 @@ def polymarket_trades(msg: dict) -> Iterator[Trade]:
         ms_to_ns(msg["timestamp"]) if msg.get("timestamp") else None,
         _f(msg["price"]),
         _f(msg["size"]),
-        msg["side"].lower(),
+        _enum(msg["side"], {"BUY": "buy", "SELL": "sell"}, "polymarket trade side"),
         False,
     )
 
@@ -126,7 +139,9 @@ def polymarket_trades(msg: dict) -> Iterator[Trade]:
 def kalshi_book(msg: dict) -> Iterator[BookRow]:
     """Kalshi lists resting *bids* for Yes and for No. A No bid at p is a Yes ask at 1 - p."""
     sym = msg["ticker"]
-    book = msg["resp"].get("orderbook_fp") or {}
+    book = msg["resp"]["orderbook_fp"]  # KeyError (unparseable) if the response is not a book
+    if not isinstance(book, dict) or not {"yes_dollars", "no_dollars"} <= book.keys():
+        raise ValueError(f"not an orderbook_fp: {str(book)[:100]}")
     yield BookRow(sym, None, "reset", None, None, None)
     for price, qty in book.get("yes_dollars") or []:
         yield BookRow(sym, None, "snapshot", "bid", _f(price), _f(qty))
@@ -141,7 +156,7 @@ def kalshi_trades(msg: dict) -> Iterator[Trade]:
         iso_to_ns(msg["created_time"]),
         _f(msg["yes_price_dollars"]),
         _f(msg["count_fp"]),
-        "buy" if msg["taker_side"] == "yes" else "sell",
+        _enum(msg["taker_side"], {"yes": "buy", "no": "sell"}, "kalshi taker_side"),
         False,
     )
 

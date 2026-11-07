@@ -1,0 +1,20 @@
+id = "pm-wallet-flow"
+title = "Flow from walk-forward-proven Polymarket wallets predicts resolution beyond price"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 2: score wallets walk-forward on past outcomes only; test whether proven
+wallets' net flow predicts resolution beyond the prevailing price, after a realistic observation
+delay.
+"""
+rule_frozen = false
+kill_criterion = """
+No out-of-sample lift over price alone.
+"""
+notes = """
+Heavy data; lag problem (price may move before we can act).
+"""

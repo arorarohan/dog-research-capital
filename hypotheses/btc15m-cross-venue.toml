@@ -1,0 +1,30 @@
+id = "btc15m-cross-venue"
+title = "Kalshi and Polymarket 15-minute BTC prices for the same interval diverge tradeably"
+kind = "edge"
+status = "inconclusive"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/findings/2026-10-22-first-look.md"
+findings = ["docs/findings/2026-10-22-first-look.md"]
+rule = "Match the two venues' 15-minute BTC markets by interval; compare outcomes and sampled prices."
+rule_frozen = false
+kill_criterion = "No executable (quote-based) gap net of both venues' costs."
+notes = """
+Outcomes agreed in 98.3% of 663 matched intervals (11 disagreements: different oracles). Prices
+differ by 5-9c on average with no systematic bias, but these are last-trade samples, not
+executable quotes, so arbitrage cannot be judged. Contested market; low prior.
+"""
+
+[search]
+unrecorded_looks = 6
+note = "Price-difference summaries at the other sampled moments."
+
+[[tests]]
+id = "agreement-and-price-gap"
+date = 2026-10-22
+role = "diagnostic"
+data = "663 matched 15-minute intervals, 2026-10-15 .. 10-22"
+metric = "outcome agreement; mean |price difference|"
+direction = "either"
+result = "descriptive"
+reported = { outcome_agreement = 0.983, disagreements = 11, mean_abs_diff_lo_c = 5.0, mean_abs_diff_hi_c = 9.0 }

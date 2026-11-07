@@ -86,8 +86,10 @@ qty, fee, levels walked), `order_rejected` / `order_unfilled`, `mark` (liquidati
 **Storage choice: SQLite**, single file `data/ledger/events.sqlite`, with triggers that forbid
 UPDATE/DELETE. Reasons: tens to thousands of events a day, so no scale problem; transactions
 make a session atomic (all of its events or none); a future web app can query it directly;
-tests are trivial. Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
-to keep the DB small. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
+tests are trivial. ~~Raw book payloads go in a sibling zstd JSONL directory referenced by hash,
+to keep the DB small.~~ *Changed in Slice 1 (2026-11-06):* raw book payloads are stored inline
+in `book_snapshot` events, so the hash chain covers the evidence itself and a session stays one
+transaction. Size: ~4 KB per book, ~20-40 books a day, roughly 50 MB a year; revisit if it grows. Derived tables (positions, NAV by day, blotter) are views or rebuilt by
 a `rebuild` command; they are never the source of truth.
 
 **This log is irreplaceable evidence** (unlike market data it cannot be re-downloaded), so it
@@ -138,6 +140,37 @@ Charter v0 *proposals* (Rohan to confirm, see Q9-Q11):
 Where the live version differs from the backtest on purpose: ask not last trade; ex-ante
 volume; depth-limited fills; latency delay. The gap between predicted and realized is the
 experiment.
+
+**As built (Slice 1, 2026-11-06).** The charter is `funds/pm-sched-gap-v1.toml`, a **DRAFT**
+until Rohan freezes it; `drc-session` refuses real runs on a draft. Draft choices: universe
+2.5-3.5 days to the scheduled end with >= $50k volume to date (ex ante, as the recorder's
+deadline mode); $12 tickets capped at 25% of displayed depth at the decision ask (Q9's $50-100
+would routinely exceed the cap, median ask depth ~$45); at most $36 per real-world event;
+one buy per token ever. Polymarket has no void: a market that resolves 50/50 settles as
+`split` at 0.5. Marks are liquidation value: the held quantity walked down the displayed bids,
+net of the exit taker fee, with nothing for shares beyond displayed depth; a position with no
+book or no bid is marked at 0. Minimum detectable edge for
+the planned 540 fills (90 days at ~6 a day) is ~5.6c against a predicted 1.2c, so the edge
+verdict will be "inconclusive" for a long time; costs and fill rates are what the first months
+judge (Q11).
+
+**Review hardening (PR #33 review, 2026-11-06).** A real run refuses uncommitted changes under
+`src/`, `funds/`, `pyproject.toml` or `uv.lock`, and `session_started` logs a hash of the session
+code (`code_sha256`) and the git tree of `src/drc/forward`, so the freeze covers code, not just
+the TOML. Charter fields that the code implements one way only (venue, side, limit,
+once_per_token, log_out_of_band, exit rule, cadence, binary-only) must state that value or the
+session refuses. The fund state is read under the ledger's write lock, the ledger allows one
+`fund_created` per fund and one start/finish/miss per session, and the CLI holds a file lock,
+so overlapping runs cannot double-allocate. `--dry-run` is refused on a ledger holding the fund.
+Runs more than `[schedule] max_late_secs` (2 h) late log the day as `session_missed`; the
+universe window is anchored to the scheduled time. The latency wait also checks the wall clock.
+
+**Known limitation (not fixed): a crash rolls back fills.** The whole session is one
+transaction, so a crash after simulated fills discards them and a re-run trades on later books.
+A live broker would keep those fills, so a crashed-and-rerun day is not what live trading would
+have produced. Accepted for now because it is rare and the re-run uses genuinely later books;
+the fix would be to commit each fill in its own transaction and make the re-run resume. See
+`docs/gotchas.md` ("Forward-test sessions").
 
 ## 6. Build plan
 
