@@ -170,3 +170,7 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   `price_change` is ~4.5 GB/day compressed on the deadline universe, so the old 30 GB cap silently
   deleted days within a week. Size the cap above (days kept locally x daily volume) and sync before
   relying on it.
+- **Old `_meta` is needed to normalize new data.** A row's `epoch` comes from the last `connect`
+  in the venue's `_meta`, which can be days old (Kalshi logs a connect only at start-up). Delete
+  old `_meta` and a re-normalize silently gives epoch 0 to every row and overwrites good archived
+  Parquet. `_meta` and `_catalog` are never pruned locally or expired remotely (#41).
