@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from drc.normalize.parsers import PARSERS
+from drc.recorder.writer import META_CHANNEL
 
 RAW_ROOTS = ("raw", "raw_forward", "raw_weather")
 NORM_ROOTS = ("norm", "norm_forward")
@@ -206,6 +207,26 @@ def is_normalized(f: RawFile, norm: set[NormKey]) -> bool:
     if norm_root is None or (f.venue, f.channel) not in PARSED_CHANNELS:
         return True
     return all((f.host, norm_root, f.venue, f.date, f.hour, t) in norm for t in NORM_TABLES)
+
+
+def pull_filters(
+    kind: str, venue: str | None = None, date: str | None = None, hour: int | None = None
+) -> list[str]:
+    """rclone `--include` patterns, relative to one raw or norm root, that select one venue
+    and/or day and/or hour. No selector means no filter (the whole root).
+
+    A raw selection also takes the venue's whole `_meta` channel: the normalizer derives
+    connection epochs from every connect/subscribe event of the venue, not just the hour's, so an
+    hour normalized without the earlier `_meta` files gets different `epoch` values."""
+    if venue is None and date is None and hour is None:
+        return []
+    v, d = venue or "*", date or "*"
+    h = f"{hour:02d}" if hour is not None else "*"
+    if kind == "raw":
+        return [f"/{v}/*/{d}/{h}.jsonl.zst", f"/{v}/{META_CHANNEL}/**"]
+    if kind == "norm":
+        return [f"/*/venue={v}/date={d}/hour={h}.*"]
+    raise ValueError(f"cannot select by venue/date/hour in {kind!r}")
 
 
 def parse_remote_listing(lsjson_text: str) -> list[tuple[str, RawFile]]:
