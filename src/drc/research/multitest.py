@@ -56,8 +56,9 @@ def holm(p, m: int | None = None) -> np.ndarray:
 
     Sort ascending; the i-th smallest (1-based) is multiplied by (m - i + 1), then a running
     maximum keeps the adjusted values monotone. Matches R's p.adjust(method="holm") when
-    m == len(p). With m > len(p) the unrecorded tests are treated as having p = 1 (the most
-    favourable assumption for the recorded ones that is still valid).
+    m == len(p). With m > len(p) the unrecorded tests are treated as having p = 1, which is
+    valid only if every unrecorded p was larger than every recorded one; when that is not
+    known, use `bonferroni(p, m)`, which is always valid.
     """
     a = _as_pvalues(p)
     n = len(a)
