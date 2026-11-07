@@ -11,6 +11,8 @@ data/
 *.parquet
 *.jsonl
 *.jsonl.zst
+# except the few-KB real raw samples used as regression fixtures (#20)
+!tests/fixtures/raw/**/*.jsonl
 .env
 .claude/worktrees/
 

@@ -1,0 +1,19 @@
+id = "near-certain-carry"
+title = "Near-certain contracts (95-99c) 'bond' carry: realized upset rate below price"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 5: buy contracts priced 95-99c and hold to resolution; compare realized
+upset rate with price, net of fee and spread.
+"""
+rule_frozen = false
+kill_criterion = """
+Upset rate CI includes the price-implied rate, or net carry CI includes 0.
+"""
+notes = """
+Note the 95-100c discovery bins in pm-sched-favorites-3d went the other way (overpriced).
+"""

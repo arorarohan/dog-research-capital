@@ -1,0 +1,21 @@
+id = "sa08-wallet-cash-shocks"
+aliases = ["SA8"]
+title = "Predict unrelated selling from wallets' external cash shocks"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 8: pressure score from pre-shock holdings x losses elsewhere; buy the depressed token after
+an unrelated shock with a financing signature and no event-specific news.
+"""
+rule_frozen = false
+kill_criterion = """
+Wallet positions/funding too incomplete, common news explains both markets, or funding comes
+from unobserved wallets.
+"""
+notes = """
+Memo priority: Small pilot (20 wallets, one month).
+"""

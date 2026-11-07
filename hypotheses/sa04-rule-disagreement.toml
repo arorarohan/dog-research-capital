@@ -1,0 +1,21 @@
+id = "sa04-rule-disagreement"
+aliases = ["SA4"]
+title = "Buy the narrow world where similar rulebooks disagree (nested payoff baskets)"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 4: with a proved nesting Y_B <= Y_A, buy Yes A + No B (payoff 1 + 1{A and not B}); buy when
+a pessimistic probability of the residual world clears both legs' costs and the locked capital.
+"""
+rule_frozen = false
+kill_criterion = """
+Nesting fails in any plausible state, sources can reverse the outcome, clarification can change
+the mapping, or the extra collateral makes the return uninteresting.
+"""
+notes = """
+Memo priority: Start. First step: ten paired rulebooks with explicit payoff tables.
+"""

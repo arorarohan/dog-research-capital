@@ -1,0 +1,21 @@
+id = "sa03-branch-news"
+aliases = ["SA3"]
+title = "Branch-specific news propagated through the wrong branch of the event tree"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 3: news changing P(B|A) moves P(B) by a x delta-r, not delta-r. Maintain a small event
+graph; buy No on a child market that jumped as if the gate were certain.
+"""
+rule_frozen = false
+kill_criterion = """
+The same news moves A substantially, unmodeled alternative routes exist, or branch probabilities
+are not identifiable from independent information.
+"""
+notes = """
+Memo priority: Start.
+"""

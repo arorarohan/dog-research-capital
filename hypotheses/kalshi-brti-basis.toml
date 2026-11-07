@@ -1,0 +1,27 @@
+id = "kalshi-brti-basis"
+title = "Kalshi's BTC index (CF BRTI) sits below Binance BTCUSDT"
+kind = "measurement"
+status = "confirmed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/findings/2026-10-22-first-look.md"
+findings = ["docs/findings/2026-10-22-first-look.md"]
+rule = "Compare Kalshi KXBTC15M strikes (BRTI at open) with Binance BTCUSDT at market open."
+rule_frozen = false
+kill_criterion = "Median basis indistinguishable from 0."
+notes = """
+A data fact, not a trading edge: a steady -12.8 bp (median, ~$107). Mixing the two sources
+biases models (Brier 0.31-0.35 with Kalshi strike + Binance spot). Recorded in docs/gotchas.md.
+Not part of the multiple-testing family (no p-value; not an alpha claim).
+"""
+
+[[tests]]
+id = "median-basis"
+date = 2026-10-22
+role = "diagnostic"
+data = "664 KXBTC15M markets, 2026-10-15 .. 10-22"
+metric = "BRTI strike minus Binance price at open, bp"
+direction = "either"
+estimate = -12.8
+result = "descriptive"
+reported = { median_usd = -107.0 }

@@ -1,0 +1,20 @@
+id = "sa06-ladder-shape"
+aliases = ["SA6"]
+title = "Infer the type of news (mean vs width vs skew) from the shape of a threshold ladder"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-23
+updated = 2026-10-23
+origin = "docs/research/2026-10-23-structural-alpha.md"
+findings = []
+rule = """
+Idea 6: fit a small distribution family to synchronized quotes, classify a news update by its
+response pattern, and trade held-out thresholds that under- or over-adjusted.
+"""
+rule_frozen = false
+kill_criterion = """
+Quotes too stale to fit, family misses bimodality, or width/skew not separable within spread.
+"""
+notes = """
+Memo priority: Next.
+"""

@@ -1,0 +1,19 @@
+id = "btc15m-time-of-day"
+title = "Time-of-day / day-of-week structure in 15-minute contracts"
+kind = "edge"
+status = "proposed"
+proposed = 2026-10-22
+updated = 2026-10-22
+origin = "docs/research-plan.md"
+findings = []
+rule = """
+Research plan study 6: calibration gap and net PnL by hour-of-day and weekday in the 15-minute
+BTC series, with the multiple-testing count written down first (24 hours x 7 days).
+"""
+rule_frozen = false
+kill_criterion = """
+No hour/day cell survives the pre-declared multiple-testing correction.
+"""
+notes = """
+A textbook multiple-testing trap: 168 cells. Holm or BH over the full grid is mandatory.
+"""
