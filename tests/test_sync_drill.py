@@ -129,6 +129,8 @@ def test_selective_pull_copies_only_the_hour_and_skips_absent_roots(tmp_path, ar
                                             ("norm", "norm_forward")]  # fmt: skip
     got = sorted(p.relative_to(into).as_posix() for p in into.rglob("*") if p.is_file())
     assert got == [
+        # the hour's accounting sidecar (#20) comes along, so a local normalize won't redo it
+        f"norm/norm_forward/_accounting/venue=kraken/date={DAY1}/hour=08.json",
         f"norm/norm_forward/book_events/venue=kraken/date={DAY1}/hour=08.parquet",
         f"norm/norm_forward/trades/venue=kraken/date={DAY1}/hour=08.parquet",
         f"raw/raw_forward/kraken/_meta/{DAY0}/12.jsonl.zst",  # the earlier connect comes along
