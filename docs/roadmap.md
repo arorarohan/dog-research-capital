@@ -114,6 +114,9 @@ cloud VM wanted ASAP (`docs/deploy.md`, `deploy/`).
       Outstanding list with order is in `docs/sync.md` (own OAuth client first: rclone's shared
       one is retired during 2026).
 - [ ] Verify the parsers before raw expires (issue #20, priority)
+- [x] Ops status, minimal (2026-11-06, issue #31): `drc-status` checks recorder, feed gaps,
+      1013s, sync timer, verify, Drive-auth age and disk over ssh, read-only (`docs/deploy.md`).
+      The fuller operations console (scoping doc C) comes with the web app.
 - [x] Test length (2026-10-25): judge costs early; edge stays inconclusive until ~9,000 independent events (scoping doc Q11)
 
 ## Phase 5: Slow crypto book (later)
