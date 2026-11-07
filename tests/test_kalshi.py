@@ -191,3 +191,25 @@ async def test_persistent_429_raises_after_max_retries(tmp_path):
             status = e.response.status_code
     assert status == 429 and calls["n"] == 3  # first try plus two retries
     assert _all(tmp_path, "kalshi", "orderbook") == []
+
+
+async def test_book_stamps_never_go_back_when_the_wall_clock_does(tmp_path, monkeypatch):
+    """WSL2's clock steps backwards; books must still be in receive order (#20)."""
+    import time as time_mod
+
+    ticks = iter([5_000_000_000_000, 4_000_000_000_000, 4_000_000_000_001, 6_000_000_000_000])
+    monkeypatch.setattr(time_mod, "time_ns", lambda: next(ticks))
+    w = RawWriter(tmp_path)
+    poller = KalshiPoller()
+    _fake_time(poller)
+    client, _ = _throttling_client(failures=0)
+    async with client:
+        for _ in range(3):
+            await poller.poll_book(client, w, "HIGH")
+    w.close()
+    stamps = [
+        r["t"]
+        for p in sorted((tmp_path / "kalshi" / "orderbook").rglob("*.jsonl*"))
+        for r in read_lines(p)
+    ]
+    assert len(stamps) == 3 and stamps == sorted(set(stamps))

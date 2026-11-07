@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
-from drc.normalize.pipeline import normalize_all
+from drc.normalize.pipeline import UnexplainedLoss, normalize_all
 
 
 def main() -> None:
@@ -23,5 +24,9 @@ def main() -> None:
     args = ap.parse_args()
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(message)s")
     venues = args.venues.split(",") if args.venues else None
-    done = normalize_all(args.raw, args.norm, venues, args.force, args.closed_only)
+    try:
+        done = normalize_all(args.raw, args.norm, venues, args.force, args.closed_only)
+    except UnexplainedLoss as e:
+        print(f"UNEXPLAINED LOSS (see {args.norm}/_accounting): {e}", file=sys.stderr)
+        sys.exit(1)
     print(f"normalized {len(done)} venue-hours")

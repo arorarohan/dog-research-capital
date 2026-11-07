@@ -19,6 +19,31 @@ section) with the symptom, the cause, and the fix. Keep CLAUDE.md brief; this fi
   sends removals for levels that fall out of range.
 - Validation tools live in `src/drc/validate/`; see `docs/validation.md`. A crossed-book rate
   above 0% means reconstruction is broken.
+- **A recorder poll that fails must not advance its time window** (Kalshi trades, #20). The
+  window used to move forward before the request, so any 429 or timeout that outlasted the
+  retries lost that interval's trades for good (2.8-6.7% of trades on 429-heavy days). Anything
+  that polls "since the last poll" advances its cursor only after success and dedups by id.
+  Compare against the venue's own history (`drc.validate.kalshi`) after changing it.
+- **Stamp every channel with `writer.now_ns()`, never `time.time_ns()`** (Kalshi order books did,
+  #20): the raw wall clock steps backwards on WSL2 and puts that channel out of receive order,
+  and the normalizer then has to sort it in memory.
+- **A message with nothing to parse must be counted, not skipped.** Normalization tallies every
+  raw line per hour (`<norm>/_accounting`) and `drc-normalize` exits 1 on unparseable lines,
+  invalid JSON, or a raw channel nobody declared. Parsers raise on unknown sides/types instead of
+  defaulting (before: any non-`BUY` Polymarket change became an ask). A new exchange field or
+  channel fails `python -m drc.validate.fields` until it is added to `normalize/fieldmap.py`.
+- **Coinbase `sequence_num` is shared by all channels of a connection**: check it on the merged
+  stream (`drc.validate.continuity`); one channel alone shows thousands of false gaps.
+- **A gap that starts at the same instant on several venues is a local stall** (the process or
+  machine paused; 3.5 s on 2026-10-22), not a venue outage. Messages after it are stamped late,
+  not lost. Same-venue gaps next to a `disconnect` event are real blind spots.
+- **Polymarket replay differs from the exchange's best bid/ask by a tick about 1 time in 500**
+  for a few seconds (a `book` snapshot and its `price_change` arrive slightly out of order). Not
+  corruption: the next update to the level fixes it. Do not treat a one-tick top-of-book change
+  that reverts within seconds as signal.
+- **Hour files start mid-stream.** A Parquet hour holds updates for books that were snapshotted in
+  an earlier hour; load contiguous hours before replaying (replay drops, and counts, updates for
+  symbols with no snapshot yet in the epoch).
 
 ## Fees
 - **Polymarket fees are per market, and the docs table is only a summary.** Gamma returns
